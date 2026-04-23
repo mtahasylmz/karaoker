@@ -2,9 +2,9 @@
 members = [
   "packages/shared-py",
   "stages/separate",
+  "stages/transcribe",
 ]
-# Members are added as we port each stage in Phase D.
-# Future: "stages/transcribe", "stages/align", "stages/record-mix".
+# Future: "stages/align", "stages/record-mix".
 
 [tool.uv.sources]
 annemusic-shared = { workspace = true }
