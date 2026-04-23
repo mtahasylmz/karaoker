@@ -1,0 +1,4 @@
+# TODO: paste the full lyrics of "Billie Eilish - Happier Than Ever"
+# source: https://genius.com/Billie-eilish-happier-than-ever-lyrics (or equivalent)
+# Lines starting with "#" are stripped from the WER comparison; replace
+# everything below with the actual lyrics before trusting the bench output.

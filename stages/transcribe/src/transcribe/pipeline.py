@@ -26,11 +26,10 @@ from . import vad
 
 log = create_logger("transcribe")
 
-# Flip to True once the Qwen3-ASR backend is wired up. Until then the flow
-# still resolves to "qwen3" for supported languages but we fall back to
-# whisper at dispatch time — cleanly, with a log line — rather than silently
-# ignoring the flow.
-_QWEN3_AVAILABLE = False
+# Qwen3-ASR backend is wired. If the load/inference fails at runtime the
+# dispatch in `run()` degrades to faster-whisper with a warn log rather than
+# failing the request.
+_QWEN3_AVAILABLE = True
 
 _model = None
 
@@ -45,6 +44,34 @@ def _load_model():
     log.info(None, "loading whisper", {"size": size, "compute": compute})
     _model = WhisperModel(size, device="cpu", compute_type=compute)
     return _model
+
+
+def _run_whisper(
+    job_id: str,
+    audio_path: Path,
+    language: str | None,
+    known_lyrics: str | None,
+    audio_input_label: str,
+) -> tuple[list[dict], str, str]:
+    """Run faster-whisper on `audio_path`. Returns (segments, language, model_id)."""
+    model = _load_model()
+    log.info(job_id, "whisper transcribing", {"input": audio_input_label})
+    segments_iter, info = model.transcribe(
+        str(audio_path),
+        language=language,
+        vad_filter=True,
+        beam_size=5,
+        word_timestamps=False,
+        initial_prompt=(known_lyrics[:200] if known_lyrics else None),
+    )
+    segments: list[dict] = []
+    for seg in segments_iter:
+        text = (seg.text or "").strip()
+        if not text or seg.end <= seg.start:
+            continue
+        segments.append({"text": text, "start": float(seg.start), "end": float(seg.end)})
+    model_id = os.environ.get("WHISPER_MODEL", "small")
+    return segments, info.language, model_id
 
 
 def run(
@@ -80,6 +107,7 @@ def run(
         log.warn(job_id, "flow wanted mix but source_uri missing; using vocals")
         audio_uri = vocals_uri
         audio_input = "vocals"
+        backend = "whisper"
 
     log.info(
         job_id,
@@ -111,27 +139,27 @@ def run(
             local_vocals = local_audio
 
         if backend == "qwen3":
-            # Unreachable today (_QWEN3_AVAILABLE is False); kept here so the
-            # dispatch point is visible when the backend lands.
-            raise NotImplementedError("qwen3 backend not wired yet")
-
-        # whisper path
-        model = _load_model()
-        log.info(job_id, "whisper transcribing", {"input": audio_input})
-        segments_iter, info = model.transcribe(
-            str(local_audio),
-            language=language,
-            vad_filter=True,
-            beam_size=5,
-            word_timestamps=False,
-            initial_prompt=(known_lyrics[:200] if known_lyrics else None),
-        )
-        segments: list[dict] = []
-        for seg in segments_iter:
-            text = (seg.text or "").strip()
-            if not text or seg.end <= seg.start:
-                continue
-            segments.append({"text": text, "start": float(seg.start), "end": float(seg.end)})
+            from . import qwen3 as qwen3_backend  # lazy import: transformers is heavy
+            try:
+                segments, detected_language, model_id = qwen3_backend.transcribe(
+                    local_audio, language, known_lyrics
+                )
+                source = "qwen3"
+            except Exception as e:
+                log.warn(
+                    job_id,
+                    "qwen3 failed at runtime; falling back to whisper",
+                    {"error": f"{type(e).__name__}: {e}"},
+                )
+                segments, detected_language, model_id = _run_whisper(
+                    job_id, local_vocals, language, known_lyrics, "vocals"
+                )
+                source = "whisper"
+        else:
+            segments, detected_language, model_id = _run_whisper(
+                job_id, local_audio, language, known_lyrics, audio_input
+            )
+            source = "whisper"
 
         # RMS-VAD on the vocals stem regardless of what the ASR model ate.
         vocal_activity = vad.detect(local_vocals)
@@ -139,22 +167,23 @@ def run(
     finished = int(time.time() * 1000)
     log.info(
         job_id,
-        "whisper complete",
+        "transcribe complete",
         {
-            "language": info.language,
-            "prob": round(float(info.language_probability), 3),
+            "language": detected_language,
             "segments": len(segments),
             "vocal_regions": len(vocal_activity),
+            "source": source,
+            "model_used": model_id,
             "audio_input": audio_input,
         },
     )
     return _response(
         job_id, started, finished,
-        language=info.language,
+        language=detected_language,
         segments=segments,
         vocal_activity=vocal_activity,
-        source="whisper",
-        model_used=os.environ.get("WHISPER_MODEL", "small"),
+        source=source,
+        model_used=model_id,
     )
 
 

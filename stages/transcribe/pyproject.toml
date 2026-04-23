@@ -1,7 +1,7 @@
 [project]
 name = "annemusic-stage-transcribe"
 version = "0.1.0"
-description = "Stage 2: transcribe vocals (faster-whisper) or fetch known lyrics (LRCLIB)"
+description = "Stage 2: transcribe vocals (faster-whisper) or full mix (Qwen3-ASR) / fetch known lyrics (LRCLIB)"
 requires-python = ">=3.11,<3.13"
 dependencies = [
   "annemusic-shared",
@@ -13,6 +13,28 @@ dependencies = [
   "certifi>=2024",
   "httpx>=0.27",
   "soundfile>=0.12",
+]
+
+# Qwen3-ASR deps are an opt-in extra. Rationale:
+# - faster-whisper==1.0.3 is pinned to numpy<2 (root CLAUDE.md scar #5).
+# - Recent torch/transformers wheels often require numpy>=2. Keeping Qwen3
+#   in an extra lets the base install stay compatible with the workspace
+#   lockfile while prod images (Dockerfile) install with `--extra qwen3`.
+# - CI/tests stub out qwen3 at the module boundary, so they don't need these.
+[project.optional-dependencies]
+# `torch` is intentionally >=2.2 (not >=2.4) because stages/align pins
+# torch==2.2.2 and the workspace lockfile has to unify. Transformers 4.45+
+# still supports torch 2.2. If Qwen3-ASR ends up requiring a newer torch
+# in practice, the options are (a) unpin align, or (b) split transcribe
+# into its own lockfile the way stages/separate did (scar #5 rationale).
+qwen3 = [
+  "torch>=2.2",
+  "transformers>=4.45",
+  "accelerate>=0.30",
+  # qwen3-asr-toolkit is preferred if present; the qwen3.py module falls
+  # back to raw transformers when the toolkit is not installed.
+  # Uncomment once the Alibaba-published toolkit is stable on PyPI:
+  # "qwen3-asr-toolkit",
 ]
 
 [build-system]

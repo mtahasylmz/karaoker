@@ -35,22 +35,34 @@ treat any unreported time as "unknown."
 
 ## Model
 
-### Target (in progress): Qwen3-ASR-1.7B
+### Phase D2b complete — Qwen3-ASR backend wired, `_QWEN3_AVAILABLE=True`
 
-- Apache 2.0. Released 2026-01-29 by Alibaba. Supports 52 languages incl.
-  Turkish. Marketed as "speech/music/**song** recognition" — only open
-  release that explicitly trains on singing.
-- Serves via vLLM in prod (day-0 support), `transformers` for local dev.
-- Deploy target: **Cloud Run + NVIDIA L4 GPU** (GA, scales to zero,
-  ~$0.67/hr). Regions: `europe-west1`/`europe-west4` for low TR latency.
-- Integration is Phase D2b (open). CLAUDE.md will drop the Whisper sections
-  once the swap lands.
+- Default checkpoint: `Qwen/Qwen3-ASR-Flash` (override via `QWEN_MODEL` env).
+  Apache 2.0, trained on singing incl. Turkish.
+- Inference lives in `src/transcribe/qwen3.py`: tries `qwen3_asr_toolkit`
+  first (Alibaba's wrapper, natively handles long-form audio + context
+  bias + timestamps), falls back to raw `transformers` (`AutoProcessor` +
+  `AutoModelForCausalLM.generate`). The raw path emits a single segment
+  covering the clip — `stages/align` produces word-level timings downstream
+  either way.
+- Deps live behind the `qwen3` extra in `pyproject.toml` (`uv sync
+  --extra qwen3`). Kept as an extra — not base deps — because
+  `faster-whisper==1.0.3` needs `numpy<2` (scar #5) and the transcribe
+  stage must stay installable inside the workspace lockfile that
+  `stages/align` also participates in (`torch==2.2.2` pin there forced the
+  `torch>=2.2` floor, not `>=2.4`).
+- Device selection via `QWEN_DEVICE=cpu|mps|cuda|auto`. Mac dev uses
+  `cpu` or `mps`; prod Dockerfile uses `cuda` on Cloud Run + NVIDIA L4.
+- Runtime failures (OOM, missing weights, bad API shape) degrade to
+  faster-whisper on the vocals stem with a warn log — the stage never
+  500s because Qwen3 is unhappy.
 
-### Current (legacy): faster-whisper
+### Legacy / fallback: faster-whisper
 
-Still in `pipeline.py` as the fallback until Qwen3 swap lands. `small` is
-being dropped as default — we'll only ship `large-v3-turbo` if we keep
-Whisper at all.
+Still in `pipeline.py` as (a) the primary backend for languages outside
+`_QWEN_TRANSCRIBE_LANGS` in `shared.flows` and (b) the runtime fallback
+when Qwen3 load/inference fails. `small` is the default size; bump to
+`large-v3-turbo` if we decide to keep Whisper beyond the fallback role.
 
 `faster-whisper==1.0.3` pinned (see top-level `CLAUDE.md` scar #4).
 

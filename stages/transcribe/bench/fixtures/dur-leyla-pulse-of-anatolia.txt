@@ -1,0 +1,4 @@
+# TODO: paste the full lyrics of "Dur Leyla — Pulse of Anatolia"
+# source: (find a reliable lyrics source)
+# Lines starting with "#" are stripped from the WER comparison; replace
+# everything below with the actual lyrics before trusting the bench output.
