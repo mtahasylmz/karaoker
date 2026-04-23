@@ -13,6 +13,7 @@ from .gcs import (
     object_exists,
     download_file,
     upload_file,
+    object_path_from_gs_uri,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "object_exists",
     "download_file",
     "upload_file",
+    "object_path_from_gs_uri",
 ]

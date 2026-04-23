@@ -78,6 +78,33 @@ Browser-side only, no pipeline impact:
 Watch out for: iOS Safari's `getUserMedia` quirks on background tabs, and permission prompts
 that newcomers won't know what to do with — show a clear explainer.
 
+## Phase C issues to revisit
+
+- **Duplicate "workflow started" log lines.** `@upstash/workflow`'s `serve()`
+  handler re-enters the top of the workflow function once per `context.call`
+  — any log statement before the first `context.run(...)` or `context.call()`
+  prints 5× per pipeline run. Fix: wrap the initial log in
+  `context.run("init", () => log.info(...))` so it runs exactly once. Trivial,
+  left as a polish pass.
+- **qstash-cli dev squats ports 8080 AND 8081** (the second is presumably its
+  admin/metrics endpoint). API was pushed to 8082. Document this in every
+  stage's `CLAUDE.md` so future sessions don't re-trip over it.
+- **qstash-cli dev signing keys rotate per run** (`QSTASH_CURRENT_SIGNING_KEY`
+  / `QSTASH_NEXT_SIGNING_KEY`). Restarting the CLI requires copying the new
+  keys into `.env` and restarting every service that reads them. A small
+  startup shim that exports these from the CLI's stdout would save a minute
+  per restart; nice-to-have.
+- **Vite binds IPv6-only on localhost** (`[::1]:5173`). `curl 127.0.0.1:5173`
+  fails; `curl localhost:5173` works. Not a real bug, but worth remembering
+  when scripting health checks.
+- **`/dev/trigger` bypasses `objectExists()` in local mode.** The skip is
+  gated on `NODE_ENV=local`; in prod the real GCS check fires. Keep the
+  bypass narrow — don't let it leak into any other endpoint.
+- **Log feed needed `overflow-wrap: anywhere` on `.msg`**. Long SHA strings
+  were pushing the flex row wider than the panel and clipping the timestamp
+  + stage columns off-screen. Fixed in styles.css; leave a note for any
+  future components that render long opaque strings.
+
 ## 5. Incidental cleanups (not urgent)
 
 - Drop `whisperx` from `requirements.txt` if we stop using `whisperx.align` in a future
