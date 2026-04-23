@@ -17,6 +17,12 @@ dependencies = [
   "soundfile>=0.12",
 ]
 
+[project.optional-dependencies]
+# Qwen3-ForcedAligner needs CUDA. Installed only on the GPU Cloud Run image
+# (pulls in vllm + ~1.2 GB of weights). The import in pipeline.py is guarded,
+# so a CPU-only `uv sync --all-packages` still runs the whisperx path.
+gpu = ["qwen-asr[vllm]>=0.0.6"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
