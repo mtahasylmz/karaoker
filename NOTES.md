@@ -142,6 +142,31 @@ that newcomers won't know what to do with — show a clear explainer.
   body param, the endpoint now scans `$DEV_FS_ROOT/uploads/` for the
   newest `[64hex].(mp4|mov|webm|mkv)` and reuses it. Keep this local-only;
   it short-circuits the whole /uploads signed-URL flow.
+- **Real `/uploads` flow fails locally with `SigningError: Cannot sign
+  data without client_email`.** Root cause: `@google-cloud/storage`'s
+  `getSignedUrl({version: "v4", action: "write"})` needs a credential
+  that knows *which* service account to sign *as*. On Cloud Run the
+  ambient runtime SA is real and has `client_email`, so it works; during
+  `gcloud auth application-default login`, ADC is a user credential
+  (`@gmail.com`, no `client_email`), so the library can't name the
+  signer and the IAM signBlob call never happens.
+
+  Two real fixes, both deferred (we avoided scope-creep adding a mock):
+  1. **Impersonate the API SA locally.** `gcloud auth application-
+     default login`, then `gcloud config set
+     auth/impersonate_service_account
+     annemusic-api@karaoke-494118.iam.gserviceaccount.com`. The user
+     already has `roles/iam.serviceAccountTokenCreator` on the API SA
+     (granted in infra/setup.sh). After this, `getSignedUrl` works
+     because ADC can now name the SA and mint signBlob tokens for it.
+  2. **Download an SA key JSON** and point `GOOGLE_APPLICATION_
+     CREDENTIALS` at it. Simpler, less secure — a stolen key means a
+     stolen production SA.
+
+  Until one of those is set up, the `"or: trigger stub flow"` button
+  (which bypasses /uploads via /dev/trigger) is the local-dev entry
+  point. The full **Karaoke it** flow works on Cloud Run without any
+  of this.
 
 ## 5. Incidental cleanups (not urgent)
 
