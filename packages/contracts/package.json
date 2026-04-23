@@ -1,0 +1,33 @@
+{
+  "name": "@annemusic/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./json-schema/*": "./json-schema/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "json-schema",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc && node scripts/export-schemas.mjs",
+    "check": "tsc --noEmit",
+    "clean": "rm -rf dist json-schema"
+  },
+  "dependencies": {
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.24.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

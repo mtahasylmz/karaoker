@@ -1,0 +1,123 @@
+{
+  "$ref": "#/definitions/ComposeRequest",
+  "definitions": {
+    "ComposeRequest": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12,32}$"
+        },
+        "words": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "start": {
+                "type": "number",
+                "minimum": 0
+              },
+              "end": {
+                "type": "number",
+                "minimum": 0
+              },
+              "score": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "text",
+              "start",
+              "end"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "video_uri": {
+          "type": "string",
+          "pattern": "^gs:\\/\\/[a-z0-9_.-]+\\/[^\\0]+$"
+        },
+        "instrumental_uri": {
+          "type": "string",
+          "pattern": "^gs:\\/\\/[a-z0-9_.-]+\\/[^\\0]+$"
+        },
+        "language": {
+          "type": "string"
+        },
+        "style": {
+          "type": "object",
+          "properties": {
+            "font": {
+              "type": "string"
+            },
+            "font_size": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "primary_colour": {
+              "type": "string",
+              "pattern": "^&H[0-9A-Fa-f]{6,8}$"
+            },
+            "secondary_colour": {
+              "type": "string",
+              "pattern": "^&H[0-9A-Fa-f]{6,8}$"
+            },
+            "outline_colour": {
+              "type": "string",
+              "pattern": "^&H[0-9A-Fa-f]{6,8}$"
+            },
+            "back_colour": {
+              "type": "string",
+              "pattern": "^&H[0-9A-Fa-f]{6,8}$"
+            },
+            "outline": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "shadow": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "alignment": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9
+            },
+            "margin_v": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_words_per_line": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "break_gap": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "tail": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "job_id",
+        "words",
+        "video_uri",
+        "instrumental_uri"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

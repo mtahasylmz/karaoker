@@ -1,0 +1,15 @@
+{
+  "$ref": "#/definitions/SeparateModel",
+  "definitions": {
+    "SeparateModel": {
+      "type": "string",
+      "enum": [
+        "bs-roformer",
+        "mel-roformer",
+        "htdemucs-ft",
+        "htdemucs"
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

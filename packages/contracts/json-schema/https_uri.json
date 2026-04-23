@@ -1,0 +1,10 @@
+{
+  "$ref": "#/definitions/HttpsUri",
+  "definitions": {
+    "HttpsUri": {
+      "type": "string",
+      "format": "uri"
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

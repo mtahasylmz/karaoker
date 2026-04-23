@@ -1,0 +1,66 @@
+{
+  "$ref": "#/definitions/AssStyle",
+  "definitions": {
+    "AssStyle": {
+      "type": "object",
+      "properties": {
+        "font": {
+          "type": "string"
+        },
+        "font_size": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "primary_colour": {
+          "type": "string",
+          "pattern": "^&H[0-9A-Fa-f]{6,8}$"
+        },
+        "secondary_colour": {
+          "type": "string",
+          "pattern": "^&H[0-9A-Fa-f]{6,8}$"
+        },
+        "outline_colour": {
+          "type": "string",
+          "pattern": "^&H[0-9A-Fa-f]{6,8}$"
+        },
+        "back_colour": {
+          "type": "string",
+          "pattern": "^&H[0-9A-Fa-f]{6,8}$"
+        },
+        "outline": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "shadow": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "alignment": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        },
+        "margin_v": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_words_per_line": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "break_gap": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "tail": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

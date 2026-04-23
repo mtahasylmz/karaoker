@@ -1,0 +1,44 @@
+{
+  "$ref": "#/definitions/RecordMixRequest",
+  "definitions": {
+    "RecordMixRequest": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12,32}$"
+        },
+        "recording_uri": {
+          "type": "string",
+          "pattern": "^gs:\\/\\/[a-z0-9_.-]+\\/[^\\0]+$"
+        },
+        "instrumental_uri": {
+          "type": "string",
+          "pattern": "^gs:\\/\\/[a-z0-9_.-]+\\/[^\\0]+$"
+        },
+        "autotune": {
+          "type": "string",
+          "enum": [
+            "off",
+            "smooth",
+            "snap"
+          ],
+          "default": "off"
+        },
+        "gain_db": {
+          "type": "number",
+          "minimum": -24,
+          "maximum": 24,
+          "default": 0
+        }
+      },
+      "required": [
+        "job_id",
+        "recording_uri",
+        "instrumental_uri"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

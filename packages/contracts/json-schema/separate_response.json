@@ -1,0 +1,68 @@
+{
+  "$ref": "#/definitions/SeparateResponse",
+  "definitions": {
+    "SeparateResponse": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12,32}$"
+        },
+        "stage": {
+          "type": "string",
+          "const": "separate"
+        },
+        "started_at": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "finished_at": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "diagnostics": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "vocals_uri": {
+          "type": "string",
+          "pattern": "^gs:\\/\\/[a-z0-9_.-]+\\/[^\\0]+$"
+        },
+        "instrumental_uri": {
+          "type": "string",
+          "pattern": "^gs:\\/\\/[a-z0-9_.-]+\\/[^\\0]+$"
+        },
+        "sample_rate": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "model_used": {
+          "type": "string",
+          "enum": [
+            "bs-roformer",
+            "mel-roformer",
+            "htdemucs-ft",
+            "htdemucs"
+          ]
+        }
+      },
+      "required": [
+        "job_id",
+        "stage",
+        "started_at",
+        "finished_at",
+        "duration_ms",
+        "vocals_uri",
+        "instrumental_uri",
+        "sample_rate",
+        "model_used"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

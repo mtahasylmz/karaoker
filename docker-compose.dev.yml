@@ -1,0 +1,23 @@
+# Local dev: brings every stage up on a shared network, same env shape
+# Cloud Run will have. Phase A only declares the qstash dev server — later
+# phases add stage services, the orchestrator, the API, and web.
+name: annemusic
+
+services:
+  qstash:
+    image: node:20-alpine
+    command: ["npx", "-y", "@upstash/qstash-cli", "dev"]
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ENV=development
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
+# Model weights cache (shared across stages to avoid re-downloading on every
+# container rebuild). Populated by Phase D.
+volumes:
+  model-cache:

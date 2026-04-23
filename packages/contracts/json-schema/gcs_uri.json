@@ -1,0 +1,10 @@
+{
+  "$ref": "#/definitions/GcsUri",
+  "definitions": {
+    "GcsUri": {
+      "type": "string",
+      "pattern": "^gs:\\/\\/[a-z0-9_.-]+\\/[^\\0]+$"
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

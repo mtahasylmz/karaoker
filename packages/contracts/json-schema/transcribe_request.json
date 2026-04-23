@@ -1,0 +1,38 @@
+{
+  "$ref": "#/definitions/TranscribeRequest",
+  "definitions": {
+    "TranscribeRequest": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12,32}$"
+        },
+        "vocals_uri": {
+          "type": "string",
+          "pattern": "^gs:\\/\\/[a-z0-9_.-]+\\/[^\\0]+$"
+        },
+        "language": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 2
+        },
+        "known_lyrics": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "artist": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "vocals_uri"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

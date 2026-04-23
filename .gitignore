@@ -17,5 +17,9 @@ tmp/
 *.wav
 *.mp3
 *.ass
-!web/**
 .secrets/
+
+# node
+node_modules/
+*.tsbuildinfo
+.turbo/

@@ -1,0 +1,48 @@
+{
+  "$ref": "#/definitions/RecordMixResponse",
+  "definitions": {
+    "RecordMixResponse": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12,32}$"
+        },
+        "stage": {
+          "type": "string",
+          "const": "record-mix"
+        },
+        "started_at": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "finished_at": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "diagnostics": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "mix_uri": {
+          "type": "string",
+          "pattern": "^gs:\\/\\/[a-z0-9_.-]+\\/[^\\0]+$"
+        }
+      },
+      "required": [
+        "job_id",
+        "stage",
+        "started_at",
+        "finished_at",
+        "duration_ms",
+        "mix_uri"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

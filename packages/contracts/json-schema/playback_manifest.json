@@ -1,0 +1,45 @@
+{
+  "$ref": "#/definitions/PlaybackManifest",
+  "definitions": {
+    "PlaybackManifest": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12,32}$"
+        },
+        "video_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "instrumental_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "ass_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "language": {
+          "type": "string"
+        },
+        "duration": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "created_at": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "job_id",
+        "video_url",
+        "instrumental_url",
+        "ass_url",
+        "created_at"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

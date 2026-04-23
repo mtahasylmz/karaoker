@@ -1,0 +1,64 @@
+{
+  "$ref": "#/definitions/LogEntry",
+  "definitions": {
+    "LogEntry": {
+      "type": "object",
+      "properties": {
+        "ts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stage": {
+          "type": "string"
+        },
+        "job_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12,32}$"
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ]
+        },
+        "msg": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "err": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "stack": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ts",
+        "stage",
+        "level",
+        "msg"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

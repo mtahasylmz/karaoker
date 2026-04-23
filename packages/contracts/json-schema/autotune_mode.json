@@ -1,0 +1,14 @@
+{
+  "$ref": "#/definitions/AutotuneMode",
+  "definitions": {
+    "AutotuneMode": {
+      "type": "string",
+      "enum": [
+        "off",
+        "smooth",
+        "snap"
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

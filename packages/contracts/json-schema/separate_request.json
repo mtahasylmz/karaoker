@@ -1,0 +1,33 @@
+{
+  "$ref": "#/definitions/SeparateRequest",
+  "definitions": {
+    "SeparateRequest": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12,32}$"
+        },
+        "source_uri": {
+          "type": "string",
+          "pattern": "^gs:\\/\\/[a-z0-9_.-]+\\/[^\\0]+$"
+        },
+        "model": {
+          "type": "string",
+          "enum": [
+            "bs-roformer",
+            "mel-roformer",
+            "htdemucs-ft",
+            "htdemucs"
+          ]
+        }
+      },
+      "required": [
+        "job_id",
+        "source_uri"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
