@@ -105,6 +105,44 @@ that newcomers won't know what to do with — show a clear explainer.
   + stage columns off-screen. Fixed in styles.css; leave a note for any
   future components that render long opaque strings.
 
+## Phase D issues to revisit
+
+- **`activeJobId` is in-memory only.** Reloading the web page drops the link
+  to the currently-running job even though state still lives in Redis. Fix:
+  persist to `localStorage` + optionally read from URL hash. Ship a "My
+  jobs" panel at the same time (there's already a `/users/:u/jobs`
+  endpoint).
+- **Orchestrator's `context.call` retries the separate stage on 5xx** with
+  QStash's own backoff, which during iteration created 4–5 zombie demucs
+  subprocesses competing for CPU. On a laptop that turns a 90 s run into a
+  ~3 min one. Either add a Redis lock per `(stage, job_id)` at the stage
+  entry so retries noop when one is in-flight, or drop `context.call` retry
+  count from 2 → 0 for local dev.
+- **Turkish wav2vec2 alignment model** (`mpoyraz/wav2vec2-xls-r-300m-cv7-turkish`)
+  failed to download during the D3 test — likely gated on HF or auth
+  required. Align gracefully falls back to evenly-split token timings, so
+  the pipeline doesn't die, but output timing quality drops significantly.
+  Setting `HF_TOKEN` or bundling the model into the image fixes it.
+- **LRCLIB miss on the same title/artist between runs.** The first run hit
+  Rick Astley's LRC; a later run missed for the same inputs. LRCLIB scores
+  matches by duration — passing `duration` (seconds) in the GET params is
+  the recommended way to stabilize. The stage already has `duration_s`
+  plumbed but we're not currently supplying it from upstream; transcribe
+  could read it from `ffprobe` on the vocals stem before the call.
+- **uv workspace sync caveat.** `uv sync --package X` wipes packages not
+  in X's dep closure. Cross-stage local dev needs `uv sync --all-packages`
+  (or the shorter `uv sync`). Documented in stages/*/CLAUDE.md but worth
+  calling out in the top-level when someone new joins.
+- **qstash-cli squats 8080+8081**, and now separate adds 8101, transcribe
+  8102, align 8103, compose 8104, record-mix 8105 — port collisions
+  multiply. Make `PORT_*` env vars the single source of truth and have
+  each service read its own (e.g. `PORT_SEPARATE`) instead of the generic
+  `PORT`. Small but cleans up a lot of restarts.
+- **`/dev/trigger` fixture discovery.** Added in-session: if no `sha256`
+  body param, the endpoint now scans `$DEV_FS_ROOT/uploads/` for the
+  newest `[64hex].(mp4|mov|webm|mkv)` and reuses it. Keep this local-only;
+  it short-circuits the whole /uploads signed-URL flow.
+
 ## 5. Incidental cleanups (not urgent)
 
 - Drop `whisperx` from `requirements.txt` if we stop using `whisperx.align` in a future

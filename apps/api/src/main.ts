@@ -74,11 +74,37 @@ app.post("/dev/trigger", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const username = body.username ?? "dev";
   if (!(await userExists(username))) await reserveUsername(username);
-  const sha256 = (body.sha256 as string | undefined) ??
-    Array.from(crypto.getRandomValues(new Uint8Array(32)))
+
+  // If the caller didn't specify a sha256, look for the newest file in
+  // $DEV_FS_ROOT/uploads/ and reuse its name (sha256.ext) so the staged
+  // fixture is exercised instead of a phantom one.
+  let sha256 = body.sha256 as string | undefined;
+  let object_path: string | undefined;
+  if (!sha256) {
+    const root = process.env.DEV_FS_ROOT;
+    if (root) {
+      try {
+        const fs = await import("node:fs");
+        const path = await import("node:path");
+        const dir = path.join(root, "uploads");
+        const entries = fs
+          .readdirSync(dir, { withFileTypes: true })
+          .filter((e) => e.isFile() && /^[a-f0-9]{64}\.(mp4|mov|webm|mkv)$/.test(e.name))
+          .map((e) => ({ name: e.name, mtime: fs.statSync(path.join(dir, e.name)).mtimeMs }))
+          .sort((a, b) => b.mtime - a.mtime);
+        if (entries[0]) {
+          sha256 = entries[0].name.split(".")[0]!;
+          object_path = `uploads/${entries[0].name}`;
+        }
+      } catch { /* fall through */ }
+    }
+  }
+  if (!sha256) {
+    sha256 = Array.from(crypto.getRandomValues(new Uint8Array(32)))
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
-  const object_path = `uploads/${sha256}.mp4`;
+  }
+  if (!object_path) object_path = `uploads/${sha256}.mp4`;
   await recordUpload(sha256, 1024, "video/mp4", object_path);
 
   const job_id = newJobId();
