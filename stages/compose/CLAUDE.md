@@ -49,3 +49,13 @@ JSON
 
 In dev (`DEV_FS_ROOT` set), both `.ass` and `manifest.json` land under
 `$DEV_FS_ROOT/stages/compose/<job_id>/`.
+
+## Tests / bench
+
+```bash
+pnpm --filter @annemusic/stage-compose test   # node:test via tsx — contract + invariant regressions
+pnpm --filter @annemusic/stage-compose bench  # smoke-run buildAss/buildLines/buildManifest on the bench fixture
+```
+
+Fixture: `bench/fixtures/fixture.json`. Pure-TS helper exercised by both is
+`src/manifest.ts:buildManifest`.

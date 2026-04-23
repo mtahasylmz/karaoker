@@ -1,0 +1,28 @@
+{
+  "job_id": "abc123def4567890",
+  "language": "en",
+  "video_uri": "gs://annemusic-local/uploads/abc123def4567890.mp4",
+  "instrumental_uri": "gs://annemusic-local/stages/separate/abc123def4567890/no_vocals.wav",
+  "words": [
+    {"text": "We're",      "start":  2.00, "end":  2.30, "score": 0.94},
+    {"text": "no",         "start":  2.30, "end":  2.50, "score": 0.96},
+    {"text": "strangers",  "start":  2.50, "end":  3.20, "score": 0.92},
+    {"text": "to",         "start":  3.20, "end":  3.40, "score": 0.95},
+    {"text": "love",       "start":  3.40, "end":  4.00, "score": 0.93},
+
+    {"text": "You",        "start":  6.00, "end":  6.20, "score": 0.95},
+    {"text": "know",       "start":  6.20, "end":  6.50, "score": 0.94},
+    {"text": "the",        "start":  6.50, "end":  6.70, "score": 0.96},
+    {"text": "rules",      "start":  6.70, "end":  7.10, "score": 0.93},
+    {"text": "and",        "start":  7.10, "end":  7.30, "score": 0.95},
+
+    {"text": "so",         "start": 10.00, "end": 10.20, "score": 0.95},
+    {"text": "do",         "start": 10.20, "end": 10.40, "score": 0.94},
+    {"text": "I",          "start": 10.40, "end": 10.90, "score": 0.96}
+  ],
+  "vocal_activity": [
+    {"start":  0.00, "end":  2.00, "kind": "instrumental"},
+    {"start":  2.00, "end": 10.90, "kind": "vocals"},
+    {"start": 10.90, "end": 20.00, "kind": "instrumental"}
+  ]
+}
