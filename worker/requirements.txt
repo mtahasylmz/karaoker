@@ -1,0 +1,20 @@
+# Web
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+
+# Pipeline
+demucs==4.0.1
+whisperx==3.1.6
+# whisperx 3.1.6 uses faster-whisper's old TranscriptionOptions signature;
+# faster-whisper >=1.1 added `multilingual` and `hotwords` positional args and
+# breaks whisperx. Pin to the last version that matches whisperx 3.1.6.
+faster-whisper==1.0.3
+# WhisperX pulls torch + faster-whisper + pyannote. CPU-only wheels pinned below to keep the image small.
+torch==2.2.2
+torchaudio==2.2.2
+numpy<2
+
+# Infra
+upstash-redis==1.2.0
+google-cloud-storage==2.19.0
+google-auth==2.37.0

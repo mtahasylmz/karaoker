@@ -1,0 +1,29 @@
+# Cloud Build config with Docker layer caching.
+# Pulls the previous :latest image and passes it as --cache-from so unchanged
+# layers (apt, pip, model pre-warm) aren't rebuilt.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - docker pull ${_IMAGE_LATEST} || exit 0
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --cache-from
+      - ${_IMAGE_LATEST}
+      - --tag
+      - ${_IMAGE}
+      - --tag
+      - ${_IMAGE_LATEST}
+      - .
+  - name: gcr.io/cloud-builders/docker
+    args: [push, "${_IMAGE}"]
+  - name: gcr.io/cloud-builders/docker
+    args: [push, "${_IMAGE_LATEST}"]
+images:
+  - ${_IMAGE}
+  - ${_IMAGE_LATEST}
+options:
+  machineType: E2_HIGHCPU_8
+timeout: 1800s

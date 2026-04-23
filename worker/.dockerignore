@@ -1,0 +1,12 @@
+__pycache__
+*.pyc
+.venv
+venv
+.env
+.pytest_cache
+Dockerfile
+.dockerignore
+*.mp4
+*.wav
+*.mp3
+tmp/

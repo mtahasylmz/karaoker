@@ -1,0 +1,13 @@
+[project]
+name = "annemusic"
+version = "0.1.0"
+description = "YouTube-to-karaoke pipeline on GCP"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["api", "worker"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
