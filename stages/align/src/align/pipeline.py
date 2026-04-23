@@ -20,6 +20,76 @@ log = create_logger("align")
 _align_cache: dict[str, tuple] = {}
 
 
+def plan_chunks(
+    segments: list[dict],
+    vocal_activity: list[dict],
+    max_seconds: float = 300.0,
+) -> list[list[dict]]:
+    """Group segments into ≤max_seconds windows, preferring to split at
+    instrumental regions in ``vocal_activity``. Never splits a segment.
+
+    Qwen3-ForcedAligner has a hard 5-minute-per-call limit; whisperx is
+    chunk-friendly. Concatenating the returned chunks in order yields the
+    original ``segments`` list.
+    """
+    if not segments:
+        return []
+
+    instrumental = [
+        (float(r["start"]), float(r["end"]))
+        for r in vocal_activity
+        if r.get("kind") == "instrumental"
+    ]
+
+    def is_break(prev_end: float, next_start: float) -> bool:
+        # Closed-interval overlap so a break that begins exactly at the next
+        # segment's start (or ends exactly at the previous segment's end) still
+        # counts. transcribe routinely emits boundaries that coincide.
+        return any(a <= next_start and b >= prev_end for a, b in instrumental)
+
+    # How many leading segments fit inside max_seconds starting from segments[0]?
+    # fit_upto=1 always holds: we never split a segment, even if it alone exceeds.
+    start0 = float(segments[0]["start"])
+    fit_upto = 1
+    while (
+        fit_upto < len(segments)
+        and float(segments[fit_upto]["end"]) - start0 <= max_seconds
+    ):
+        fit_upto += 1
+
+    if fit_upto == len(segments):
+        span = float(segments[-1]["end"]) - start0
+        if span > max_seconds:
+            log.warn(
+                None,
+                "chunk exceeds limit; single segment kept whole",
+                {"span": span, "limit": max_seconds},
+            )
+        return [list(segments)]
+
+    # Must split somewhere in [1, fit_upto]. Prefer the latest instrumental
+    # break; fall back to fit_upto (the last boundary that keeps the first
+    # chunk under the limit).
+    split_at = fit_upto
+    for i in range(fit_upto, 0, -1):
+        prev_end = float(segments[i - 1]["end"])
+        next_start = float(segments[i]["start"])
+        if is_break(prev_end, next_start):
+            split_at = i
+            break
+
+    first = list(segments[:split_at])
+    rest = list(segments[split_at:])
+    span = float(first[-1]["end"]) - float(first[0]["start"])
+    if span > max_seconds:
+        log.warn(
+            None,
+            "chunk exceeds limit; single segment kept whole",
+            {"span": span, "limit": max_seconds},
+        )
+    return [first] + plan_chunks(rest, vocal_activity, max_seconds)
+
+
 def _load(language: str):
     if language in _align_cache:
         return _align_cache[language]
