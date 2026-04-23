@@ -23,3 +23,7 @@ tmp/
 node_modules/
 *.tsbuildinfo
 .turbo/
+
+# playwright session artifacts
+.playwright-mcp/
+phase-*.png

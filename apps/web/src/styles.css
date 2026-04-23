@@ -1,0 +1,153 @@
+:root {
+  --bg: #0b0d10;
+  --panel: #141821;
+  --text: #e8eaed;
+  --muted: #9aa0a6;
+  --accent: #ffd60a;
+  --ok: #34d399;
+  --pending: #9aa0a6;
+  --running: #60a5fa;
+  --err: #f87171;
+  --border: #242a33;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 2rem 1rem;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+  display: flex;
+  justify-content: center;
+}
+main { width: 100%; max-width: 760px; }
+h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
+p.subtitle { margin: 0 0 2rem; color: var(--muted); }
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.35rem; }
+input[type=text], input[type=file] {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  border-radius: 8px;
+  background: #0b0d10;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 1rem;
+}
+input[type=file] { padding: 0.55rem 0.65rem; }
+input:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+button {
+  margin-top: 0.75rem;
+  padding: 0.7rem 1.2rem;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #111;
+  border: none;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  font-weight: 400;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.75rem;
+}
+.row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.small { font-size: 0.85rem; color: var(--muted); }
+.hidden { display: none; }
+.progress {
+  height: 6px;
+  background: #1f2633;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+.progress > div {
+  height: 100%;
+  background: var(--accent);
+  width: 0;
+  transition: width 0.15s ease;
+}
+.status { margin-top: 0.75rem; font-size: 0.95rem; }
+.status.done { color: var(--ok); }
+.status.failed { color: var(--err); }
+.status.running { color: var(--running); }
+
+/* Pipeline stages */
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+.stage {
+  padding: 0.75rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0b0d10;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--muted);
+  position: relative;
+}
+.stage .name { font-weight: 600; color: var(--text); font-size: 0.9rem; }
+.stage .dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  margin-right: 0.4rem;
+  background: var(--pending);
+}
+.stage.pending .dot { background: var(--pending); }
+.stage.running .dot {
+  background: var(--running);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.stage.done .dot { background: var(--ok); }
+.stage.failed .dot { background: var(--err); }
+.stage.running { border-color: var(--running); }
+.stage.done { border-color: var(--ok); }
+.stage.failed { border-color: var(--err); }
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+/* Log feed */
+.logs {
+  max-height: 360px;
+  overflow-y: auto;
+  background: #0b0d10;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.log-line { display: flex; gap: 0.75rem; padding: 0.1rem 0; }
+.log-line .ts { color: var(--muted); flex: 0 0 6rem; }
+.log-line .stage { color: #60a5fa; flex: 0 0 6rem; font-weight: 600; }
+.log-line .level-debug { color: var(--muted); flex: 0 0 3rem; }
+.log-line .level-info  { color: var(--ok);    flex: 0 0 3rem; }
+.log-line .level-warn  { color: #fbbf24;      flex: 0 0 3rem; }
+.log-line .level-error { color: var(--err);   flex: 0 0 3rem; }
+.log-line .msg {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.log-line .data { color: var(--muted); margin-left: 0.35rem; }
