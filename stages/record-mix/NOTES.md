@@ -207,6 +207,26 @@ Research notes on that path preserved in git history if needed
 
 ---
 
+## Assets
+
+### `assets/plate_ir.wav` — synthetic plate-style impulse response
+
+- **Origin:** generated from `assets/make_plate_ir.py`, a deterministic
+  (fixed RNG seed) numpy+scipy recipe: exponentially-decaying stereo noise
+  band-passed into 500 Hz–8 kHz, sprinkled with five early-reflection taps,
+  peak-normalised to –1 dBFS.
+- **Length:** 1.8 s, stereo, 48 kHz, PCM_16 → ~340 KB on disk.
+- **Licence:** CC0 — authored in-repo, no third-party weights. No attribution
+  string required in production output.
+- **Regenerate:** `uv run --package annemusic-stage-record-mix python stages/record-mix/assets/make_plate_ir.py`
+  (writes the WAV in place; seed is fixed so the bytes reproduce exactly).
+- **Why synthetic:** shipping a real plate IR would pull in external licensing
+  (Studio Nord Bremen / OpenAIR / etc. are CC-BY-at-best). The synthetic IR
+  is indistinguishable from a modest plate for karaoke-level mixing and keeps
+  the stage fully CC0.
+
+---
+
 ## Concrete tool table
 
 | Purpose | Tool | License |
