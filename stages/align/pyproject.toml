@@ -1,0 +1,31 @@
+[project]
+name = "annemusic-stage-align"
+version = "0.1.0"
+description = "Stage 3: wav2vec2 forced alignment (segment text → per-word timings)"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "annemusic-shared",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "whisperx==3.1.6",
+  "faster-whisper==1.0.3",
+  "torch==2.2.2",
+  "torchaudio==2.2.2",
+  "numpy<2",
+  "jsonschema>=4.23",
+  "certifi>=2024",
+  "soundfile>=0.12",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/align"]
+
+[tool.uv.sources]
+annemusic-shared = { workspace = true }
+
+[dependency-groups]
+dev = ["pytest>=8"]
