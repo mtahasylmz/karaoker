@@ -1,0 +1,134 @@
+[
+  {
+    "model": "htdemucs",
+    "fixture": "Actions_-_One_Minute_Smile",
+    "wall_clock_s": 4.371427666977979,
+    "audio_duration_s": 6.8034467120181406,
+    "rtf": 0.6425313303705235,
+    "vocals_sdr_db": 9.34481856800788,
+    "instrumental_sdr_db": 10.039198763250031,
+    "sample_rate": 44100,
+    "error": null
+  },
+  {
+    "model": "htdemucs",
+    "fixture": "Al_James_-_Schoolboy_Facination",
+    "wall_clock_s": 3.868533583008684,
+    "audio_duration_s": 6.8034467120181406,
+    "rtf": 0.5686137845652562,
+    "vocals_sdr_db": 9.335914635152065,
+    "instrumental_sdr_db": 10.266483481519614,
+    "sample_rate": 44100,
+    "error": null
+  },
+  {
+    "model": "htdemucs",
+    "fixture": "Signe_Jakobsen_-_What_Have_You_Done_To_Me",
+    "wall_clock_s": 3.8707617499749176,
+    "audio_duration_s": 6.8034467120181406,
+    "rtf": 0.5689412901753609,
+    "vocals_sdr_db": 11.664836014338679,
+    "instrumental_sdr_db": 14.597718931480818,
+    "sample_rate": 44100,
+    "error": null
+  },
+  {
+    "model": "htdemucs_ft",
+    "fixture": "Actions_-_One_Minute_Smile",
+    "wall_clock_s": 13.903679374954663,
+    "audio_duration_s": 6.8034467120181406,
+    "rtf": 2.0436228816776234,
+    "vocals_sdr_db": 8.838204190853482,
+    "instrumental_sdr_db": 10.189175405185686,
+    "sample_rate": 44100,
+    "error": null
+  },
+  {
+    "model": "htdemucs_ft",
+    "fixture": "Al_James_-_Schoolboy_Facination",
+    "wall_clock_s": 13.619206292030867,
+    "audio_duration_s": 6.8034467120181406,
+    "rtf": 2.0018097985500254,
+    "vocals_sdr_db": 9.504546108238285,
+    "instrumental_sdr_db": 10.378965716201819,
+    "sample_rate": 44100,
+    "error": null
+  },
+  {
+    "model": "htdemucs_ft",
+    "fixture": "Signe_Jakobsen_-_What_Have_You_Done_To_Me",
+    "wall_clock_s": 13.470408124965616,
+    "audio_duration_s": 6.8034467120181406,
+    "rtf": 1.9799388008978498,
+    "vocals_sdr_db": 11.586291213551181,
+    "instrumental_sdr_db": 13.99151141391323,
+    "sample_rate": 44100,
+    "error": null
+  },
+  {
+    "model": "mel_band_roformer_kim",
+    "fixture": "Actions_-_One_Minute_Smile",
+    "wall_clock_s": 3.60243787500076,
+    "audio_duration_s": 6.8034467120181406,
+    "rtf": 0.5295018874237866,
+    "vocals_sdr_db": 11.945502414379773,
+    "instrumental_sdr_db": 12.835876401483851,
+    "sample_rate": 44100,
+    "error": null
+  },
+  {
+    "model": "mel_band_roformer_kim",
+    "fixture": "Al_James_-_Schoolboy_Facination",
+    "wall_clock_s": 3.234219291014597,
+    "audio_duration_s": 6.8034467120181406,
+    "rtf": 0.4753795286294253,
+    "vocals_sdr_db": 11.429227919167161,
+    "instrumental_sdr_db": 12.227599178880562,
+    "sample_rate": 44100,
+    "error": null
+  },
+  {
+    "model": "mel_band_roformer_kim",
+    "fixture": "Signe_Jakobsen_-_What_Have_You_Done_To_Me",
+    "wall_clock_s": 3.271079375001136,
+    "audio_duration_s": 6.8034467120181406,
+    "rtf": 0.4807973830709728,
+    "vocals_sdr_db": 12.683680774538882,
+    "instrumental_sdr_db": 16.42216478765415,
+    "sample_rate": 44100,
+    "error": null
+  },
+  {
+    "model": "bs_roformer_ep317",
+    "fixture": "Actions_-_One_Minute_Smile",
+    "wall_clock_s": 6.980196791002527,
+    "audio_duration_s": 6.8034467120181406,
+    "rtf": 1.0259794904650552,
+    "vocals_sdr_db": 11.18195472983353,
+    "instrumental_sdr_db": 12.282672478769953,
+    "sample_rate": 44100,
+    "error": null
+  },
+  {
+    "model": "bs_roformer_ep317",
+    "fixture": "Al_James_-_Schoolboy_Facination",
+    "wall_clock_s": 6.8531454160111025,
+    "audio_duration_s": 6.8034467120181406,
+    "rtf": 1.0073049302944006,
+    "vocals_sdr_db": 11.365203380100025,
+    "instrumental_sdr_db": 12.209548403855141,
+    "sample_rate": 44100,
+    "error": null
+  },
+  {
+    "model": "bs_roformer_ep317",
+    "fixture": "Signe_Jakobsen_-_What_Have_You_Done_To_Me",
+    "wall_clock_s": 6.906020041031297,
+    "audio_duration_s": 6.8034467120181406,
+    "rtf": 1.015076671186674,
+    "vocals_sdr_db": 12.70008100646329,
+    "instrumental_sdr_db": 15.343775692744156,
+    "sample_rate": 44100,
+    "error": null
+  }
+]

@@ -39,13 +39,43 @@
         },
         "language": {
           "type": "string"
+        },
+        "vocal_activity": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "number",
+                "minimum": 0
+              },
+              "end": {
+                "type": "number",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "vocals",
+                  "instrumental"
+                ]
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "kind"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [
         "job_id",
         "vocals_uri",
         "segments",
-        "language"
+        "language",
+        "vocal_activity"
       ],
       "additionalProperties": false
     }

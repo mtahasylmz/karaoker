@@ -1,11 +1,12 @@
 {
-  "$ref": "#/definitions/TranscribeSource",
+  "$ref": "#/definitions/AlignSource",
   "definitions": {
-    "TranscribeSource": {
+    "AlignSource": {
       "type": "string",
       "enum": [
         "qwen3",
-        "whisper"
+        "whisperx",
+        "even-split"
       ]
     }
   },

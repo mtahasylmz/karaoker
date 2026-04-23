@@ -1,7 +1,10 @@
 [tool.uv.workspace]
+# stages/separate has its own lockfile (separate/uv.lock) because it needs
+# numpy>=2 (audio-separator 0.44+) while transcribe/align are stuck on
+# numpy<2 (whisperx 3.1.6 / faster-whisper 1.0.3). Single workspace lock
+# can't hold both.
 members = [
   "packages/shared-py",
-  "stages/separate",
   "stages/transcribe",
   "stages/align",
   "stages/record-mix",

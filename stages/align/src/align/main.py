@@ -38,6 +38,7 @@ async def process(request: Request) -> dict:
             vocals_uri=body["vocals_uri"],
             segments=body["segments"],
             language=body["language"],
+            vocal_activity=body["vocal_activity"],
         )
     except Exception as e:
         log.error(job_id, "pipeline failed", e)

@@ -59,6 +59,14 @@
               "type": "integer",
               "exclusiveMinimum": 0
             },
+            "res_x": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "res_y": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
             "primary_colour": {
               "type": "string",
               "pattern": "^&H[0-9A-Fa-f]{6,8}$"
@@ -108,13 +116,43 @@
             }
           },
           "additionalProperties": false
+        },
+        "vocal_activity": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "number",
+                "minimum": 0
+              },
+              "end": {
+                "type": "number",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "vocals",
+                  "instrumental"
+                ]
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "kind"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [
         "job_id",
         "words",
         "video_uri",
-        "instrumental_uri"
+        "instrumental_uri",
+        "vocal_activity"
       ],
       "additionalProperties": false
     }

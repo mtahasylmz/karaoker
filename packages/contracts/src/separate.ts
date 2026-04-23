@@ -1,11 +1,16 @@
 import { z } from "zod";
 import { GcsUri, StageJobId, StageResult } from "./primitives.js";
 
+// Model slugs are the filenames the separate stage routes on (see
+// stages/separate/src/separate/pipeline.py AS_MODEL_FILES / DEMUCS_MODELS).
+// Keep in lock-step with the pipeline — adding a model is a one-line edit
+// here + a mapping row there.
 export const SeparateModel = z.enum([
-  "bs-roformer",
-  "mel-roformer",
-  "htdemucs-ft",
+  "mel_band_roformer_kim",
+  "bs_roformer_ep317",
   "htdemucs",
+  "htdemucs_ft",
+  "htdemucs_6s",
 ]);
 export type SeparateModel = z.infer<typeof SeparateModel>;
 

@@ -57,6 +57,46 @@
             ],
             "additionalProperties": false
           }
+        },
+        "vocal_activity": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "number",
+                "minimum": 0
+              },
+              "end": {
+                "type": "number",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "vocals",
+                  "instrumental"
+                ]
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "kind"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "qwen3",
+            "whisperx",
+            "even-split"
+          ]
+        },
+        "model_used": {
+          "type": "string"
         }
       },
       "required": [
@@ -65,7 +105,10 @@
         "started_at",
         "finished_at",
         "duration_ms",
-        "words"
+        "words",
+        "vocal_activity",
+        "source",
+        "model_used"
       ],
       "additionalProperties": false
     }

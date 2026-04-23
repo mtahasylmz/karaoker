@@ -7,10 +7,13 @@ dependencies = [
   "annemusic-shared",
   "fastapi>=0.115",
   "uvicorn[standard]>=0.32",
+  # Primary separator: Mel-Band RoFormer via audio-separator (see bench/RESEARCH.md).
+  # audio-separator brings its own torch dep; we no longer pin torch ourselves.
+  "audio-separator[cpu]>=0.44",
+  # Kept as a documented fallback (SEPARATE_MODEL=htdemucs|htdemucs_ft), called
+  # via `python -m demucs` subprocess. demucs 4.0.1 is torch-version-tolerant.
   "demucs==4.0.1",
-  "torch==2.2.2",
-  "torchaudio==2.2.2",
-  "numpy<2",
+  "numpy>=2",
   "jsonschema>=4.23",
   "certifi>=2024",
   # torchaudio needs an I/O backend to save .wav; soundfile is the portable one.
@@ -25,7 +28,9 @@ build-backend = "hatchling.build"
 packages = ["src/separate"]
 
 [tool.uv.sources]
-annemusic-shared = { workspace = true }
+# Not a workspace member (see root pyproject.toml — numpy pin conflicts).
+# Path-source the shared package directly so editable local dev still works.
+annemusic-shared = { path = "../../packages/shared-py", editable = true }
 
 [dependency-groups]
 dev = ["pytest>=8"]

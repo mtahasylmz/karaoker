@@ -33,8 +33,7 @@
           "pattern": "^gs:\\/\\/[a-z0-9_.-]+\\/[^\\0]+$"
         },
         "manifest_url": {
-          "type": "string",
-          "format": "uri"
+          "type": "string"
         },
         "ass_uri": {
           "type": "string",

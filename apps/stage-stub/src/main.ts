@@ -74,7 +74,7 @@ app.post("/transcribe/process", async (c) => {
     const body = TranscribeRequest.parse(await c.req.json());
     log.info(body.job_id, "stub transcribe: starting", {
       known_lyrics: !!body.known_lyrics,
-      title: body.title,
+      language: body.language,
     });
     await sleep(rand(800, 2000));
     log.info(body.job_id, "stub transcribe: complete");
@@ -89,6 +89,11 @@ app.post("/transcribe/process", async (c) => {
       segments: [
         { text: "stub segment one two three", start: 0.5, end: 3.2 },
         { text: "stub segment four five", start: 4.1, end: 6.8 },
+      ],
+      vocal_activity: [
+        { start: 0.5, end: 3.2, kind: "vocals" },
+        { start: 3.2, end: 4.1, kind: "instrumental" },
+        { start: 4.1, end: 6.8, kind: "vocals" },
       ],
       source: "whisper",
       model_used: "stub",
@@ -127,6 +132,10 @@ app.post("/align/process", async (c) => {
       finished_at: Date.now(),
       duration_ms: Date.now() - started,
       words,
+      // Pass-through from the request now that the contract requires it.
+      vocal_activity: body.vocal_activity,
+      source: "even-split",
+      model_used: "stub",
     };
     return c.json(resp);
   } catch (e) {

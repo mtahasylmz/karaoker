@@ -19,6 +19,16 @@ If the language has no align model, the stage logs a warning and falls back
 to evenly splitting each segment's tokens across its duration — downstream
 stages still get something usable.
 
+## `vocal_activity` pass-through
+
+Transcribe emits `vocal_activity: [{start, end, kind}]` on every response
+(contract-required), and the orchestrator forwards it here. This stage
+does not consume the signal (wav2vec2 only needs audio + text) — it
+forwards the array verbatim into its response so `stages/compose` can
+render instrumental-break UI (placeholders, countdowns) without
+re-downloading the vocals audio. Required on both request and response;
+no synthesis on either side.
+
 ## Local dev
 
 ```bash

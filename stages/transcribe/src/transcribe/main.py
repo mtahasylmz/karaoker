@@ -37,10 +37,9 @@ async def process(request: Request) -> dict:
         return pipeline.run(
             job_id=job_id,
             vocals_uri=body["vocals_uri"],
+            source_uri=body.get("source_uri"),
             language=body.get("language"),
             known_lyrics=body.get("known_lyrics"),
-            title=body.get("title"),
-            artist=body.get("artist"),
         )
     except Exception as e:
         log.error(job_id, "pipeline failed", e)

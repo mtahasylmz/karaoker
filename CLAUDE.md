@@ -20,8 +20,8 @@ apps/api (Cloud Run, TS)  ──── triggers ────►  apps/orchestrat
                           ┌───────────────────────────┬───────────────────────┐
                           │                           │                       │
                   stages/separate           stages/transcribe          stages/align
-                  (Python, demucs           (Python, Whisper           (Python, whisperx
-                   or BS-RoFormer)           + LRCLIB lookup)           wav2vec2)
+                  (Python, RoFormer         (Python, flow-routed        (Python, whisperx
+                   or demucs)                Qwen3-ASR / whisper)        wav2vec2)
                           │                           │                       │
                           └──────────┬────────────────┴───────────────────────┘
                                      ▼
@@ -48,7 +48,7 @@ packages/
   shared-py/         (phase B) same, Python.
 stages/
   separate/          (phase D1) vocals/instrumental split. Python.
-  transcribe/        (phase D2) text + segment timings. Python. LRCLIB lookup.
+  transcribe/        (phase D2) text + segment timings + vocal_activity. Python, flow-routed Qwen3-ASR / faster-whisper.
   align/             (phase D3) segment → per-word timings. Python.
   compose/           (phase D4) words + URIs → .ass + manifest. TS.
   record-mix/        (phase D5) user recording + instrumental → mix. Python.

@@ -43,10 +43,11 @@
         "model_used": {
           "type": "string",
           "enum": [
-            "bs-roformer",
-            "mel-roformer",
-            "htdemucs-ft",
-            "htdemucs"
+            "mel_band_roformer_kim",
+            "bs_roformer_ep317",
+            "htdemucs",
+            "htdemucs_ft",
+            "htdemucs_6s"
           ]
         }
       },

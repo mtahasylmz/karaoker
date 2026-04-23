@@ -7,7 +7,7 @@
  * ASS color format is &HAABBGGRR (alpha-blue-green-red).
  */
 
-import type { Word } from "@annemusic/contracts";
+import type { LyricLine, Word } from "@annemusic/contracts";
 
 export type AssStyle = {
   font: string;
@@ -122,4 +122,20 @@ export function buildAss(words: Word[], styleOverrides: Partial<AssStyle> = {}):
 export function lineDuration(words: Word[]): number {
   if (words.length === 0) return 0;
   return words[words.length - 1]!.end - words[0]!.start;
+}
+
+// Same grouping as buildAss uses internally, shaped as LyricLine[] for the
+// playback manifest. Keeping the two outputs in lock-step is the whole point
+// of deriving them from the same words + style.
+export function buildLines(
+  words: Word[],
+  styleOverrides: Partial<AssStyle> = {},
+): LyricLine[] {
+  const s: AssStyle = { ...DEFAULT_STYLE, ...styleOverrides };
+  const cleaned = words.filter((w) => w.text && w.end > w.start);
+  return groupLines(cleaned, s.max_words_per_line, s.break_gap).map((ws) => ({
+    start: ws[0]!.start,
+    end: ws[ws.length - 1]!.end,
+    words: ws,
+  }));
 }

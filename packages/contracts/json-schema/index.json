@@ -1,6 +1,7 @@
 {
   "AlignRequest": "./align_request.json",
   "AlignResponse": "./align_response.json",
+  "AlignSource": "./align_source.json",
   "AssStyle": "./ass_style.json",
   "AutotuneMode": "./autotune_mode.json",
   "ComposeRequest": "./compose_request.json",
@@ -9,6 +10,9 @@
   "HttpsUri": "./https_uri.json",
   "LogEntry": "./log_entry.json",
   "LogLevel": "./log_level.json",
+  "LyricLine": "./lyric_line.json",
+  "MediaUri": "./media_uri.json",
+  "MixParams": "./mix_params.json",
   "PlaybackManifest": "./playback_manifest.json",
   "RecordMixRequest": "./record_mix_request.json",
   "RecordMixResponse": "./record_mix_response.json",
@@ -22,5 +26,7 @@
   "TranscribeRequest": "./transcribe_request.json",
   "TranscribeResponse": "./transcribe_response.json",
   "TranscribeSource": "./transcribe_source.json",
+  "VocalActivityKind": "./vocal_activity_kind.json",
+  "VocalActivityRegion": "./vocal_activity_region.json",
   "Word": "./word.json"
 }

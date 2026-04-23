@@ -30,7 +30,11 @@ app = FastAPI(title="annemusic-separate")
 
 @app.get("/ping")
 def ping() -> dict:
-    return {"ok": True, "service": "separate", "model": os.environ.get("SEPARATE_MODEL", "htdemucs")}
+    return {
+        "ok": True,
+        "service": "separate",
+        "model": os.environ.get("SEPARATE_MODEL", pipeline.DEFAULT_MODEL),
+    }
 
 
 @app.post("/process")

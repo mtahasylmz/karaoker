@@ -9,6 +9,7 @@ import { serve } from "@upstash/workflow/hono";
 import type {
   AlignResponse,
   ComposeResponse,
+  GcsUri,
   SeparateResponse,
   StageJobId,
   TranscribeResponse,
@@ -18,14 +19,17 @@ import { required } from "@annemusic/shared-ts/env";
 
 export type WorkflowPayload = {
   job_id: StageJobId;
+  source_uri: GcsUri; // gs://bucket/uploads/<sha>.<ext>
   username: string;
   sha256: string;
-  source_uri: string; // gs://bucket/uploads/<sha>.<ext>
   content_type: string;
   known_lyrics?: string;
+  language?: string;
+  // User-supplied metadata for searchable video names. Not consumed by any
+  // stage — persisted to the job:<id> / video:<sha> hashes at workflow entry
+  // so search-by-title works for in-flight jobs, not only completed ones.
   title?: string;
   artist?: string;
-  language?: string;
 };
 
 const log = createLogger("orchestrator");
@@ -43,6 +47,20 @@ export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
   const u = urls();
 
   log.info(job_id, "workflow started", { sha: p.sha256, user: p.username });
+
+  if (p.title || p.artist || p.language) {
+    await context.run("persist-metadata", async () => {
+      const { redis } = await import("@annemusic/shared-ts/redis");
+      const fields: Record<string, string> = {};
+      if (p.title) fields["title"] = p.title;
+      if (p.artist) fields["artist"] = p.artist;
+      if (p.language) fields["language"] = p.language;
+      if (Object.keys(fields).length > 0) {
+        await redis().hset(`job:${job_id}`, fields);
+        await redis().hset(`video:${p.sha256}`, fields);
+      }
+    });
+  }
 
   const separate = await context.call<SeparateResponse>("separate", {
     url: `${u.separate}/process`,
@@ -65,10 +83,11 @@ export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
     body: {
       job_id,
       vocals_uri: sep.vocals_uri,
+      // Original upload; Qwen3-ASR backend consumes the mix directly.
+      // faster-whisper path ignores this field.
+      source_uri: p.source_uri,
       language: p.language,
       known_lyrics: p.known_lyrics,
-      title: p.title,
-      artist: p.artist,
     },
     headers: { "content-type": "application/json" },
     retries: 2,
@@ -87,6 +106,9 @@ export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
       vocals_uri: sep.vocals_uri,
       segments: tr.segments,
       language: tr.language,
+      // Carried through align (no-op for wav2vec2) so compose can render
+      // instrumental-break UI without a second round-trip to transcribe.
+      vocal_activity: tr.vocal_activity,
     },
     headers: { "content-type": "application/json" },
     retries: 2,
@@ -106,6 +128,9 @@ export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
       video_uri: p.source_uri,
       instrumental_uri: sep.instrumental_uri,
       language: tr.language,
+      // Align's pass-through copy; required by the contract since transcribe
+      // always produces it and align always forwards it.
+      vocal_activity: al.vocal_activity,
     },
     headers: { "content-type": "application/json" },
     retries: 2,

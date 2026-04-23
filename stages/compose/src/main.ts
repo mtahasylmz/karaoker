@@ -14,7 +14,7 @@ import {
 import { createLogger } from "@annemusic/shared-ts/logger";
 import { publicUrl, uploadBuffer } from "@annemusic/shared-ts/gcs";
 
-import { buildAss } from "./ass.js";
+import { buildAss, buildLines } from "./ass.js";
 
 const log = createLogger("compose");
 
@@ -40,6 +40,7 @@ app.post("/process", async (c) => {
     const ass_url = await uploadBuffer(ass_object, ass, "text/x-ssa");
     log.debug(job_id, "ass uploaded", { bytes: Buffer.byteLength(ass) });
 
+    const lines = buildLines(req.words, req.style ?? {});
     const duration = req.words.length > 0
       ? req.words[req.words.length - 1]!.end
       : undefined;
@@ -52,7 +53,13 @@ app.post("/process", async (c) => {
       language: req.language,
       duration,
       created_at: Date.now(),
+      lines,
+      vocal_activity: req.vocal_activity,
     };
+    log.debug(job_id, "manifest shape", {
+      lines: lines.length,
+      vocal_activity: req.vocal_activity.length,
+    });
     const manifest_object = `stages/compose/${job_id}/manifest.json`;
     const manifest_url = await uploadBuffer(
       manifest_object,

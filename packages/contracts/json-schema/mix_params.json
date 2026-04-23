@@ -1,0 +1,37 @@
+{
+  "$ref": "#/definitions/MixParams",
+  "definitions": {
+    "MixParams": {
+      "type": "object",
+      "properties": {
+        "vocal_gain_db": {
+          "type": "number",
+          "minimum": -12,
+          "maximum": 12
+        },
+        "instrumental_gain_db": {
+          "type": "number",
+          "minimum": -12,
+          "maximum": 12
+        },
+        "reverb_wet": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "duck_db": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "presence_db": {
+          "type": "number",
+          "minimum": -3,
+          "maximum": 6
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

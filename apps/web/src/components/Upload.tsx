@@ -80,7 +80,7 @@ export function Upload({
       <div style={{ marginTop: "0.75rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
         <input
           type="text"
-          placeholder="Song title (optional — helps lyrics lookup)"
+          placeholder="Song title (optional)"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />

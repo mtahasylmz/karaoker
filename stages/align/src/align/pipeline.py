@@ -30,11 +30,30 @@ def _load(language: str):
     return model, meta
 
 
+def _whisperx_checkpoint(language: str) -> str:
+    # Report the real HF/torchaudio checkpoint whisperx resolved to, so the
+    # response's model_used reflects what actually ran rather than a generic
+    # "whisperx" label.
+    try:
+        from whisperx.alignment import (
+            DEFAULT_ALIGN_MODELS_HF,
+            DEFAULT_ALIGN_MODELS_TORCH,
+        )
+    except Exception:
+        return f"whisperx:{language}"
+    if language in DEFAULT_ALIGN_MODELS_HF:
+        return DEFAULT_ALIGN_MODELS_HF[language]
+    if language in DEFAULT_ALIGN_MODELS_TORCH:
+        return f"torchaudio:{DEFAULT_ALIGN_MODELS_TORCH[language]}"
+    return f"whisperx:{language}"
+
+
 def run(
     job_id: str,
     vocals_uri: str,
     segments: list[dict],
     language: str,
+    vocal_activity: list[dict],
 ) -> dict:
     started = int(time.time() * 1000)
     log.info(job_id, "starting", {"segments": len(segments), "language": language})
@@ -55,7 +74,10 @@ def run(
             log.warn(job_id, "no align model; synthesizing word timings", {"err": str(e)})
             words = _synthesize_words(segments)
             finished = int(time.time() * 1000)
-            return _response(job_id, started, finished, words)
+            return _response(
+                job_id, started, finished, words, vocal_activity,
+                source="even-split", model_used="even-split",
+            )
 
         aligned = whisperx.align(
             segments, model_a, meta, audio, "cpu", return_char_alignments=False,
@@ -77,7 +99,10 @@ def run(
 
     finished = int(time.time() * 1000)
     log.info(job_id, "done", {"words": len(words), "duration_ms": finished - started})
-    return _response(job_id, started, finished, words)
+    return _response(
+        job_id, started, finished, words, vocal_activity,
+        source="whisperx", model_used=_whisperx_checkpoint(language),
+    )
 
 
 def _synthesize_words(segments: list[dict]) -> list[dict]:
@@ -100,7 +125,16 @@ def _synthesize_words(segments: list[dict]) -> list[dict]:
     return out
 
 
-def _response(job_id: str, started: int, finished: int, words: list[dict]) -> dict:
+def _response(
+    job_id: str,
+    started: int,
+    finished: int,
+    words: list[dict],
+    vocal_activity: list[dict],
+    *,
+    source: str,
+    model_used: str,
+) -> dict:
     return {
         "job_id": job_id,
         "stage": "align",
@@ -108,4 +142,7 @@ def _response(job_id: str, started: int, finished: int, words: list[dict]) -> di
         "finished_at": finished,
         "duration_ms": finished - started,
         "words": words,
+        "vocal_activity": vocal_activity,
+        "source": source,
+        "model_used": model_used,
     }

@@ -37,8 +37,11 @@ async def process(request: Request) -> dict:
             job_id=job_id,
             recording_uri=body["recording_uri"],
             instrumental_uri=body["instrumental_uri"],
+            vocals_uri=body.get("vocals_uri"),
             autotune=body.get("autotune", "off"),
+            clean_bleed=bool(body.get("clean_bleed", True)),
             gain_db=float(body.get("gain_db", 0.0)),
+            mix=body.get("mix") or {},
         )
     except Exception as e:
         log.error(job_id, "pipeline failed", e)

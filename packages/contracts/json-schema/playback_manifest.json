@@ -9,16 +9,13 @@
           "pattern": "^[a-f0-9]{12,32}$"
         },
         "video_url": {
-          "type": "string",
-          "format": "uri"
+          "type": "string"
         },
         "instrumental_url": {
-          "type": "string",
-          "format": "uri"
+          "type": "string"
         },
         "ass_url": {
-          "type": "string",
-          "format": "uri"
+          "type": "string"
         },
         "language": {
           "type": "string"
@@ -29,6 +26,87 @@
         },
         "created_at": {
           "type": "integer"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "number",
+                "minimum": 0
+              },
+              "end": {
+                "type": "number",
+                "minimum": 0
+              },
+              "words": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "start": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "end": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "score": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "start",
+                    "end"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "words"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "vocal_activity": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "number",
+                "minimum": 0
+              },
+              "end": {
+                "type": "number",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "vocals",
+                  "instrumental"
+                ]
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "kind"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [
@@ -36,7 +114,9 @@
         "video_url",
         "instrumental_url",
         "ass_url",
-        "created_at"
+        "created_at",
+        "lines",
+        "vocal_activity"
       ],
       "additionalProperties": false
     }

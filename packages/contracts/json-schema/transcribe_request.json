@@ -12,18 +12,16 @@
           "type": "string",
           "pattern": "^gs:\\/\\/[a-z0-9_.-]+\\/[^\\0]+$"
         },
+        "source_uri": {
+          "type": "string",
+          "pattern": "^gs:\\/\\/[a-z0-9_.-]+\\/[^\\0]+$"
+        },
         "language": {
           "type": "string",
           "minLength": 2,
-          "maxLength": 2
+          "maxLength": 3
         },
         "known_lyrics": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        },
-        "artist": {
           "type": "string"
         }
       },

@@ -1,11 +1,11 @@
 {
-  "$ref": "#/definitions/TranscribeSource",
+  "$ref": "#/definitions/VocalActivityKind",
   "definitions": {
-    "TranscribeSource": {
+    "VocalActivityKind": {
       "type": "string",
       "enum": [
-        "qwen3",
-        "whisper"
+        "vocals",
+        "instrumental"
       ]
     }
   },

@@ -26,6 +26,18 @@ export const HttpsUri = z
   .refine((v) => v.startsWith("https://"), "must be https");
 export type HttpsUri = z.infer<typeof HttpsUri>;
 
+// Public URL for a media artifact the browser will fetch. Prod emits
+// https://storage.googleapis.com/... ; dev (DEV_FS_ROOT) emits file:// so
+// local manifests can round-trip through this contract without fake-https
+// shims.
+export const MediaUri = z
+  .string()
+  .refine(
+    (v) => v.startsWith("https://") || v.startsWith("file://"),
+    "expected https:// or file:// URL",
+  );
+export type MediaUri = z.infer<typeof MediaUri>;
+
 // Every stage response carries timing + optional per-stage diagnostics so we
 // can trace perf regressions without inventing new fields.
 export const StageResult = z.object({
