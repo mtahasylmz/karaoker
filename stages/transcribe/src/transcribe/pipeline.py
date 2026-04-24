@@ -126,7 +126,15 @@ def _load_qwen3(force_device: str | None = None):
 
     repo = os.environ.get("QWEN3_MODEL", "Qwen/Qwen3-ASR-1.7B")
     device = force_device or _pick_device()
-    dtype = torch.bfloat16 if device != "cpu" else torch.float32
+    if device.startswith("cuda"):
+        dtype = torch.bfloat16
+    elif device == "mps":
+        # MPS can't load bf16 weights (TypeError in _load_state_dict_into_meta_model).
+        # fp16 is Apple's mixed-precision path; any qwen3 ops missing MPS kernels
+        # still fall through to _force_qwen3_cpu_reload at inference time.
+        dtype = torch.float16
+    else:
+        dtype = torch.float32
     max_new_tokens = int(os.environ.get("QWEN3_MAX_NEW_TOKENS", "512"))
     log.info(
         None,
