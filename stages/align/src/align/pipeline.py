@@ -80,6 +80,66 @@ class _Qwen3SanityError(RuntimeError):
 # Chunking
 # --------------------------------------------------------------------------- #
 
+def split_at_vad_breaks(
+    segments: list[dict],
+    vocal_activity: list[dict],
+) -> list[dict]:
+    """Split any segment that spans ≥2 vocals regions into one sub-segment per
+    region, allocating words proportionally by each region's vocals duration.
+
+    Upstream transcribe can legitimately emit one coarse segment for the whole
+    song — Qwen3-ASR in particular does (see stages/transcribe/CLAUDE.md).
+    plan_chunks explicitly "never splits a segment," so a single-segment input
+    yields a single chunk spanning the full audio, and whisperx.align silently
+    truncates on long inputs. Splitting at VAD breaks here gives plan_chunks
+    multiple segments to work with and gives whisperx a tight time window per
+    sub-segment.
+
+    Segments that fit inside a single vocals region pass through unchanged.
+    """
+    vocals = [
+        (float(r["start"]), float(r["end"]))
+        for r in vocal_activity
+        if r.get("kind") == "vocals"
+    ]
+    if not vocals:
+        return list(segments)
+
+    out: list[dict] = []
+    for seg in segments:
+        seg_start = float(seg["start"])
+        seg_end = float(seg["end"])
+        text = (seg.get("text") or "").strip()
+
+        overlapping = [
+            (max(a, seg_start), min(b, seg_end))
+            for a, b in vocals
+            if a < seg_end and b > seg_start
+        ]
+        if len(overlapping) <= 1 or not text:
+            out.append(dict(seg))
+            continue
+
+        words = text.split()
+        total_vocal_dur = sum(b - a for a, b in overlapping)
+        if total_vocal_dur <= 0 or not words:
+            out.append(dict(seg))
+            continue
+
+        idx = 0
+        for i, (a, b) in enumerate(overlapping):
+            if i == len(overlapping) - 1:
+                part = words[idx:]
+            else:
+                count = max(0, round(len(words) * ((b - a) / total_vocal_dur)))
+                part = words[idx:idx + count]
+                idx += count
+            if not part:
+                continue
+            out.append({"text": " ".join(part), "start": a, "end": b})
+    return out
+
+
 def plan_chunks(
     segments: list[dict],
     vocal_activity: list[dict],
@@ -451,10 +511,12 @@ def run(
 
         audio = whisperx.load_audio(str(local_vocals))
 
+        segments = split_at_vad_breaks(segments, vocal_activity)
         chunks = plan_chunks(segments, vocal_activity, max_seconds=_QWEN_MAX_SECONDS)
         log.info(
             job_id, "chunk plan",
             {"chunk_count": len(chunks),
+             "segment_count": len(segments),
              "backend": backend,
              "audio_seconds": round(len(audio) / _AUDIO_SR, 2)},
         )
