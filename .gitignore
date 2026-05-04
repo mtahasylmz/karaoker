@@ -17,6 +17,8 @@ tmp/
 *.wav
 *.mp3
 *.ass
+# Committed DSP assets — keep the broad audio ignore but carve out shipped IRs.
+!stages/record-mix/assets/plate_ir.wav
 .secrets/
 
 # node

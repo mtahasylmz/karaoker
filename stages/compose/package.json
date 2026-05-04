@@ -7,7 +7,9 @@
     "build": "tsc",
     "check": "tsc --noEmit",
     "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "test": "DEV_FS_ROOT=${DEV_FS_ROOT:-/tmp/annemusic-compose-test} tsx --test tests/*.test.ts",
+    "bench": "DEV_FS_ROOT=${DEV_FS_ROOT:-/tmp/annemusic-compose-bench} tsx bench/run.mjs"
   },
   "dependencies": {
     "@annemusic/contracts": "workspace:*",

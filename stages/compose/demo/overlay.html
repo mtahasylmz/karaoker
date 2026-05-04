@@ -295,16 +295,21 @@ function LyricOverlay({ words, audioRef, videoRef }) {
         el.style.setProperty("--blur",  blur + "px");
       }
 
-      // 3) per-word fill (only the active line matters visually)
-      if (active >= 0 && active < lines.length) {
-        const line = lines[active];
-        const els  = wordRefs.current[active] || [];
+      // 3) per-word fill for every line, not just the active one — otherwise
+      // seeking backward leaves past lines stuck at --p=1 and jumping forward
+      // leaves skipped lines stuck at --p=0. Binding --p purely to each word's
+      // own temporal position makes the rAF idempotent under any seek.
+      // Cost is O(total_words) per frame; negligible for typical songs
+      // (<500 words). Do not re-"optimize" this to the active line only.
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const els  = wordRefs.current[i] || [];
         for (let k = 0; k < line.words.length; k++) {
           const w = line.words[k];
           const el = els[k]; if (!el) continue;
           let p;
-          if (t < w.start)      p = 0;
-          else if (t > w.end)   p = 1;
+          if (t >= w.end)       p = 1;
+          else if (t <= w.start) p = 0;
           else                  p = (t - w.start) / Math.max(1e-3, w.end - w.start);
           el.style.setProperty("--p", p);
         }

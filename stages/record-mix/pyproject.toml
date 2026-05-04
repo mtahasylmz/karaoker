@@ -9,6 +9,11 @@ dependencies = [
   "uvicorn[standard]>=0.32",
   "jsonschema>=4.23",
   "certifi>=2024",
+  # Tier-1 DSP deps.
+  "numpy<2",                # workspace-wide pin (align/transcribe stuck on <2)
+  "scipy>=1.11",            # BSD — FFT for GCC-PHAT alignment
+  "soundfile>=0.12",        # BSD — WAV I/O for alignment + tests + bench
+  "demucs==4.0.1",          # MIT — bleed cleanup, matches stages/separate pin
 ]
 
 [build-system]

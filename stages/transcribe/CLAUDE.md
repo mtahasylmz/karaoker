@@ -61,6 +61,21 @@ Whisper at all.
 - NVIDIA Parakeet / Canary-Qwen — no Turkish support.
 - Mistral Voxtral — no Turkish in the 13 core languages.
 
+### Env knobs (Qwen3 + device)
+
+- `TRANSCRIBE_DEVICE` — override the device picker (`cuda:0` / `mps` /
+  `cpu`). Default: cuda > mps > cpu, auto-detected at load time.
+- `QWEN3_MODEL` — HF repo ID (default `Qwen/Qwen3-ASR-1.7B`).
+- `QWEN3_MAX_NEW_TOKENS` — passed to `Qwen3ASRModel.from_pretrained`
+  (default `512`). Raise for very long audio per the Qwen README.
+
+The Qwen3 forced aligner lives in `stages/align`; this stage emits a
+single coarse segment spanning the audio and leaves per-word timing to
+align. `known_lyrics` biasing is a no-op on the qwen3 path (context
+biasing is DashScope-cloud-only, not in the local `qwen-asr` package) —
+one `info` log fires per request when `known_lyrics` is set while
+routing to qwen3.
+
 ## VAD (`vad.py`)
 
 Short-time RMS envelope on the vocals stem + hysteresis thresholding.
