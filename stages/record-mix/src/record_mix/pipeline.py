@@ -15,7 +15,10 @@ The heavy lifting lives in sibling modules so each piece is unit-testable:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -47,6 +50,13 @@ PLATE_IR = Path(__file__).resolve().parent.parent.parent / "assets" / "plate_ir.
 # Re-align after Demucs only when the shift is worth applying. Below this we
 # treat the second correlation as noise-level drift.
 REALIGN_MIN_SHIFT_MS = 0.5
+
+# Knob-independent prework (download, decode, GCC-PHAT, Demucs, loudnorm
+# measurement) is cached per request key so the debounced re-render a slider
+# nudge triggers only pays the final filter render + encode (~2-10 s), not
+# the 30-60 s Demucs pass. Cloud Run /tmp is tmpfs, so keep the cache small.
+CACHE_ROOT = Path(os.environ.get("RECORD_MIX_CACHE", "/tmp/record-mix-cache"))
+CACHE_KEEP = int(os.environ.get("RECORD_MIX_CACHE_KEEP", "4"))
 
 
 def run(
@@ -92,62 +102,24 @@ def run(
         log.warn(job_id, "autotune=smooth is pass-through in v1; v2 adds RubberBand", {})
         skipped.append("autotune=smooth")
 
+    # ---- 1-5. Knob-independent prework (cached per request key) --------
+    pre_mix_vocal, local_inst, pre = _prework(
+        job_id, recording_uri, instrumental_uri, vocals_uri, clean_bleed,
+    )
+    applied.update(pre["applied"])
+    skipped.extend(s for s in pre["skipped"] if s not in skipped)
+    applied["prework_cache"] = pre["cache"]
+    vocal_meas = pre["vocal_meas"]
+    inst_meas = pre["inst_meas"]
+    applied["loudnorm"] = {
+        "vocal": _loudnorm_summary(vocal_meas),
+        "instrumental": _loudnorm_summary(inst_meas),
+    }
+    vocal_ln = loudnorm.second_pass_filter(vocal_meas, targets=loudnorm.VOCAL_TARGETS)
+    inst_ln = loudnorm.second_pass_filter(inst_meas, targets=loudnorm.INSTRUMENTAL_TARGETS)
+
     with tempfile.TemporaryDirectory(prefix=f"record-mix-{job_id}-") as tmp_s:
         tmp = Path(tmp_s)
-
-        # ---- 1. Download inputs ----------------------------------------
-        rec_obj = object_path_from_gs_uri(recording_uri)
-        inst_obj = object_path_from_gs_uri(instrumental_uri)
-        local_rec_in = tmp / f"recording_in{Path(rec_obj).suffix or '.webm'}"
-        local_inst = tmp / "instrumental.wav"
-        download_file(rec_obj, local_rec_in)
-        download_file(inst_obj, local_inst)
-
-        local_vocals: Path | None = None
-        if vocals_uri:
-            voc_obj = object_path_from_gs_uri(vocals_uri)
-            local_vocals = tmp / "vocals.wav"
-            download_file(voc_obj, local_vocals)
-
-        # ---- 2. Decode recording → mono 48k WAV for DSP ----------------
-        rec_decoded = tmp / "recording.wav"
-        _run(["ffmpeg", "-y", "-i", str(local_rec_in),
-              "-ac", "1", "-ar", "48000", "-f", "wav", str(rec_decoded)])
-
-        # ---- 3. GCC-PHAT alignment (optional) --------------------------
-        aligned = _align(job_id, rec_decoded, local_inst, local_vocals, tmp, skipped, applied)
-
-        # ---- 4. Demucs bleed cleanup (optional) ------------------------
-        pre_mix_vocal = aligned
-        if clean_bleed:
-            cleaned = bleed.clean_bleed(aligned, tmp / "demucs")
-            applied["clean_bleed"] = True
-            pre_mix_vocal = cleaned
-            # Re-align the cleaned stem — Demucs adds 1–3 ms phase shift.
-            if local_vocals is not None:
-                try:
-                    sig = align_sync.load_mono_48k(cleaned)
-                    ref = align_sync.load_mono_48k(local_vocals)
-                    lag_s, snr = align_sync.gcc_phat(sig, ref)
-                    if snr >= align_sync.SNR_ACCEPT_DB and abs(lag_s) * 1000 >= REALIGN_MIN_SHIFT_MS:
-                        shifted = tmp / "vocal_post_clean_aligned.wav"
-                        _shift_audio(cleaned, shifted, lag_s)
-                        pre_mix_vocal = shifted
-                        applied["realigned_after_cleanup"] = True
-                        applied["alignment_offset_ms_post_clean"] = lag_s * 1000.0
-                except Exception as e:
-                    log.warn(job_id, "post-clean realignment failed; using un-realigned stem",
-                             {"err": str(e)})
-
-        # ---- 5. Two-pass loudnorm measurement --------------------------
-        vocal_meas = loudnorm.measure(pre_mix_vocal, targets=loudnorm.VOCAL_TARGETS)
-        inst_meas = loudnorm.measure(local_inst, targets=loudnorm.INSTRUMENTAL_TARGETS)
-        applied["loudnorm"] = {
-            "vocal": _loudnorm_summary(vocal_meas),
-            "instrumental": _loudnorm_summary(inst_meas),
-        }
-        vocal_ln = loudnorm.second_pass_filter(vocal_meas, targets=loudnorm.VOCAL_TARGETS)
-        inst_ln = loudnorm.second_pass_filter(inst_meas, targets=loudnorm.INSTRUMENTAL_TARGETS)
 
         # ---- 6. Compose filter graph -----------------------------------
         reverb_wet = float(mix_params["reverb_wet"])
@@ -218,6 +190,129 @@ def run(
     log.info(job_id, "done",
              {"duration_ms": result["duration_ms"], "skipped": skipped, "applied": applied})
     return result
+
+
+# ------------------------------------------------------------------------
+# Prework cache
+# ------------------------------------------------------------------------
+
+def _prework(
+    job_id: str,
+    recording_uri: str,
+    instrumental_uri: str,
+    vocals_uri: str | None,
+    clean_bleed: bool,
+) -> tuple[Path, Path, dict]:
+    """Download → decode → GCC-PHAT → Demucs → realign → loudnorm-measure,
+    cached on the knob-independent request key. Every slider value in `mix`
+    feeds only the final render, so per-nudge latency drops from the full
+    Demucs pass to render+encode once the first request warmed the key.
+
+    Returns (pre_mix_vocal_wav, instrumental_wav, meta) where the paths live
+    in the cache dir (read-only for the render step).
+    """
+    key = hashlib.sha1(
+        "|".join([recording_uri, instrumental_uri, vocals_uri or "", "b" if clean_bleed else "-"]).encode()
+    ).hexdigest()[:16]
+    cdir = CACHE_ROOT / key
+    voc_p = cdir / "pre_mix_vocal.wav"
+    inst_p = cdir / "instrumental.wav"
+    meta_p = cdir / "meta.json"
+
+    if voc_p.exists() and inst_p.exists() and meta_p.exists():
+        meta = json.loads(meta_p.read_text())
+        meta["cache"] = "hit"
+        os.utime(cdir)  # freshen mtime for LRU pruning
+        log.info(job_id, "prework cache hit", {"key": key})
+        return voc_p, inst_p, meta
+
+    applied: dict[str, Any] = {"clean_bleed": False, "realigned_after_cleanup": False}
+    skipped: list[str] = []
+
+    with tempfile.TemporaryDirectory(prefix=f"record-mix-pre-{job_id}-") as tmp_s:
+        tmp = Path(tmp_s)
+
+        # ---- 1. Download inputs ----------------------------------------
+        rec_obj = object_path_from_gs_uri(recording_uri)
+        inst_obj = object_path_from_gs_uri(instrumental_uri)
+        local_rec_in = tmp / f"recording_in{Path(rec_obj).suffix or '.webm'}"
+        local_inst = tmp / "instrumental.wav"
+        download_file(rec_obj, local_rec_in)
+        download_file(inst_obj, local_inst)
+
+        local_vocals: Path | None = None
+        if vocals_uri:
+            voc_obj = object_path_from_gs_uri(vocals_uri)
+            local_vocals = tmp / "vocals.wav"
+            download_file(voc_obj, local_vocals)
+
+        # ---- 2. Decode recording → mono 48k WAV for DSP ----------------
+        rec_decoded = tmp / "recording.wav"
+        _run(["ffmpeg", "-y", "-i", str(local_rec_in),
+              "-ac", "1", "-ar", "48000", "-f", "wav", str(rec_decoded)])
+
+        # ---- 3. GCC-PHAT alignment (optional) --------------------------
+        aligned = _align(job_id, rec_decoded, local_inst, local_vocals, tmp, skipped, applied)
+
+        # ---- 4. Demucs bleed cleanup (optional) ------------------------
+        pre_mix_vocal = aligned
+        if clean_bleed:
+            cleaned = bleed.clean_bleed(aligned, tmp / "demucs")
+            applied["clean_bleed"] = True
+            pre_mix_vocal = cleaned
+            # Re-align the cleaned stem — Demucs adds 1–3 ms phase shift.
+            if local_vocals is not None:
+                try:
+                    sig = align_sync.load_mono_48k(cleaned)
+                    ref = align_sync.load_mono_48k(local_vocals)
+                    lag_s, snr = align_sync.gcc_phat(sig, ref)
+                    if snr >= align_sync.SNR_ACCEPT_DB and abs(lag_s) * 1000 >= REALIGN_MIN_SHIFT_MS:
+                        shifted = tmp / "vocal_post_clean_aligned.wav"
+                        _shift_audio(cleaned, shifted, lag_s)
+                        pre_mix_vocal = shifted
+                        applied["realigned_after_cleanup"] = True
+                        applied["alignment_offset_ms_post_clean"] = lag_s * 1000.0
+                except Exception as e:
+                    log.warn(job_id, "post-clean realignment failed; using un-realigned stem",
+                             {"err": str(e)})
+
+        # ---- 5. Two-pass loudnorm measurement --------------------------
+        vocal_meas = loudnorm.measure(pre_mix_vocal, targets=loudnorm.VOCAL_TARGETS)
+        inst_meas = loudnorm.measure(local_inst, targets=loudnorm.INSTRUMENTAL_TARGETS)
+
+        # ---- Persist atomically (write sibling, rename over) ------------
+        meta = {
+            "applied": applied,
+            "skipped": skipped,
+            "vocal_meas": vocal_meas,
+            "inst_meas": inst_meas,
+        }
+        work = CACHE_ROOT / f"{key}.tmp"
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True)
+        shutil.copyfile(pre_mix_vocal, work / "pre_mix_vocal.wav")
+        shutil.copyfile(local_inst, work / "instrumental.wav")
+        (work / "meta.json").write_text(json.dumps(meta))
+        shutil.rmtree(cdir, ignore_errors=True)
+        work.rename(cdir)
+
+    _prune_cache(keep=CACHE_KEEP, protect=cdir)
+    return voc_p, inst_p, {**meta, "cache": "miss"}
+
+
+def _prune_cache(*, keep: int, protect: Path) -> None:
+    """LRU-prune the prework cache to `keep` entries. /tmp is tmpfs on Cloud
+    Run, so every cached wav is resident memory — keep the lid on."""
+    try:
+        entries = sorted(
+            (p for p in CACHE_ROOT.iterdir() if p.is_dir() and p != protect),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for stale in entries[max(keep - 1, 0):]:
+            shutil.rmtree(stale, ignore_errors=True)
+    except FileNotFoundError:
+        pass
 
 
 # ------------------------------------------------------------------------

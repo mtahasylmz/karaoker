@@ -47,7 +47,15 @@ def gcc_phat(
 
     Positive lag_seconds → `sig` arrived late relative to `ref` (trim sig's start).
     Negative lag_seconds → `sig` is early (delay sig with adelay).
-    snr_db = 20 * log10(peak / median(|cc|)); callers gate on >= SNR_ACCEPT_DB.
+
+    snr_db is the peak-to-secondary ratio: the winning peak against the
+    largest |cc| outside a ±5 ms exclusion zone around it. A real alignment
+    is a lone delta (high ratio); uncorrelated audio is a field of equals
+    (≈0 dB). Callers gate on >= SNR_ACCEPT_DB. A median-based floor is
+    useless here: the max of ~10^5 whitened-correlation samples sits
+    ~sqrt(2·ln N) sigma above the median even for pure noise, so the old
+    peak/median metric cleared any reasonable gate and confidently applied
+    random ±800 ms shifts to non-matching audio.
     """
     sig = np.asarray(sig, dtype=np.float32)
     ref = np.asarray(ref, dtype=np.float32)
@@ -66,10 +74,15 @@ def gcc_phat(
     # Arrange so index 0 == lag 0, positive indices == positive lags.
     window = np.concatenate([cc[: max_lag + 1], cc[-max_lag:]])
     lags = np.concatenate([np.arange(max_lag + 1), np.arange(-max_lag, 0)])
-    i = int(np.argmax(np.abs(window)))
-    peak = float(abs(window[i]))
-    floor = float(np.median(np.abs(window))) + 1e-15
-    snr_db = 20.0 * np.log10(peak / floor)
+    mag = np.abs(window)
+    i = int(np.argmax(mag))
+    peak = float(mag[i])
+    # Exclusion zone in lag units (the window array wraps positive-then-
+    # negative lags, so mask on lag distance, not index distance).
+    excl = int(round(fs * 0.005))  # ±5 ms
+    outside = np.abs(lags - lags[i]) > excl
+    secondary = float(mag[outside].max()) if outside.any() else 1e-15
+    snr_db = 20.0 * np.log10(peak / (secondary + 1e-15))
     lag_s = float(lags[i]) / fs
     return lag_s, snr_db
 
