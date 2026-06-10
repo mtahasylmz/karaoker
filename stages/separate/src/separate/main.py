@@ -7,6 +7,7 @@ packages/contracts), runs the pipeline, returns a SeparateResponse.
 from __future__ import annotations
 
 import os
+import threading
 
 # macOS Python can't find system CAs by default; torch.hub + demucs downloads
 # fail with CERTIFICATE_VERIFY_FAILED. Point urllib at certifi's bundle so
@@ -16,7 +17,7 @@ if "SSL_CERT_FILE" not in os.environ:
     os.environ["SSL_CERT_FILE"] = certifi.where()
     os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, HTTPException
 
 from shared import create_logger, flush_logs, verify_stage_auth
 from shared.schemas import validate, ValidationError
@@ -37,9 +38,17 @@ def ping() -> dict:
     }
 
 
+
+# One job at a time: model singletons and (on GPU deploys) a single L4 leave
+# no headroom for concurrent runs. The handler below is sync (def), so
+# FastAPI executes it on the threadpool and the event loop stays free —
+# /ping and health probes answer mid-job, unlike the old async-def handler
+# that froze the loop for the whole run. The lock serializes the jobs that
+# Cloud Run lets through (--concurrency 1 guards the front door in prod).
+_job_lock = threading.Lock()
+
 @app.post("/process", dependencies=[Depends(verify_stage_auth)])
-async def process(request: Request) -> dict:
-    body = await request.json()
+def process(body: dict = Body(...)) -> dict:
     try:
         validate(body, "separate_request")
     except ValidationError as e:
@@ -48,7 +57,8 @@ async def process(request: Request) -> dict:
 
     job_id = body["job_id"]
     try:
-        result = pipeline.run(job_id, body["source_uri"], body.get("model"))
+        with _job_lock:
+            result = pipeline.run(job_id, body["source_uri"], body.get("model"))
     except Exception as e:
         log.error(job_id, "pipeline failed", e)
         flush_logs()

@@ -145,6 +145,10 @@ if [[ $GPU == 1 ]]; then
     --memory 16Gi
     --no-cpu-throttling
     --max-instances 1
+    # One request at a time: the stages run a single ML job per instance
+    # (in-process job lock mirrors this); Cloud Run's default of 80 would
+    # queue requests against a busy worker and time them out together.
+    --concurrency 1
     --timeout 3600
     --add-volume "name=models,type=cloud-storage,bucket=${GCS_BUCKET},readonly=true"
     --add-volume-mount "volume=models,mount-path=/gcs"
@@ -163,6 +167,11 @@ else
     --max-instances 1
     --timeout 3600
   )
+  # compose is light pure-TS and handles parallel requests fine; every other
+  # stage runs one heavy ML/DSP job at a time (see the in-process job lock).
+  if [[ "$STAGE" != "compose" ]]; then
+    DEPLOY_FLAGS+=( --concurrency 1 )
+  fi
 fi
 
 if [[ $WARM == 1 ]]; then
