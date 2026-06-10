@@ -6,7 +6,11 @@ latter drives karaoke UI during gaps so no stale word highlight sits frozen
 on screen.
 
 Backend is routed per-language by `shared.flow_for(language)` (mirrors
-`packages/contracts/src/flows.ts`):
+`packages/contracts/src/flows.ts`). When the caller sends no language hint,
+the stage detects one first — faster-whisper LID on a 30 s window of the
+vocals stem anchored at the first VAD vocal region — and routes on the
+detection when `language_probability ≥ LID_MIN_PROB` (default 0.5).
+Low-confidence detections fall back to the whisper path's own auto-detect:
 
 - **Qwen3-ASR-1.7B** on the original mix (`source_uri`) for languages in
   its supported set — Apache 2.0, trained on singing/music incl. Turkish.
@@ -20,9 +24,11 @@ Either way `vocal_activity` comes from RMS envelope on the **vocals stem**
 isolated stem — absence of energy there is ground truth for instrumental
 breaks.
 
-If `known_lyrics` is supplied it becomes the ASR's `initial_prompt` /
-bias text (first 200 chars — more biases the model). Worth it for Turkish
-and rare vocabulary; it's a prompt, not a transcription replacement.
+If `known_lyrics` is supplied it biases the ASR: the whisper path uses
+`initial_prompt` (first 200 chars), the qwen3 path passes it as `context`
+(system-prompt injection, capped at `QWEN3_CONTEXT_MAX_CHARS`, default
+4000). Worth it for Turkish and rare vocabulary; it's a prompt, not a
+transcription replacement.
 
 ## Contract
 
@@ -71,10 +77,8 @@ Whisper at all.
 
 The Qwen3 forced aligner lives in `stages/align`; this stage emits a
 single coarse segment spanning the audio and leaves per-word timing to
-align. `known_lyrics` biasing is a no-op on the qwen3 path (context
-biasing is DashScope-cloud-only, not in the local `qwen-asr` package) —
-one `info` log fires per request when `known_lyrics` is set while
-routing to qwen3.
+align. `known_lyrics` rides qwen-asr's `transcribe(context=...)` parameter
+(local-package context biasing; verified present in qwen-asr 0.0.6).
 
 ## VAD (`vad.py`)
 

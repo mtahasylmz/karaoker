@@ -166,6 +166,48 @@ def _audio_duration_seconds(path: Path) -> float:
         return float(librosa.get_duration(path=str(path)))
 
 
+# Routing on a missing language hint used to fall straight to DEFAULT_FLOW
+# (whisper/vocals), which meant the qwen3 backend never ran for real jobs —
+# the product UI doesn't collect a language. Detect instead, and only route
+# on the detection when whisper is reasonably sure.
+_LID_MIN_PROB = float(os.environ.get("LID_MIN_PROB", "0.5"))
+
+# Cap the lyrics context fed to Qwen3's system prompt. Full song lyrics fit
+# comfortably; the cap only guards against pathological inputs.
+_QWEN3_CONTEXT_MAX = int(os.environ.get("QWEN3_CONTEXT_MAX_CHARS", "4000"))
+
+
+def _detect_language(local_vocals: Path, vocal_activity: list[dict], job_id: str) -> str | None:
+    """LID on a 30 s window of the vocals stem, anchored at the first sung
+    region so an instrumental intro doesn't poison the detection. Returns an
+    ISO code, or None when confidence is too low to route on (the whisper
+    path then auto-detects per its default behaviour).
+    """
+    from faster_whisper.audio import decode_audio  # lazy
+
+    start = next((r["start"] for r in vocal_activity if r.get("kind") == "vocals"), 0.0)
+    audio = decode_audio(str(local_vocals), sampling_rate=16000)
+    lo = int(start * 16000)
+    window = audio[lo : lo + 30 * 16000]
+    if window.shape[0] < 16000:  # under ~1 s of usable audio — don't guess
+        return None
+    model = _load_model()
+    _, info = model.transcribe(window, language=None, beam_size=1, vad_filter=False)
+    prob = float(info.language_probability)
+    accepted = prob >= _LID_MIN_PROB
+    log.info(
+        job_id,
+        "language detected",
+        {
+            "language": info.language,
+            "prob": round(prob, 3),
+            "window_start_s": round(start, 2),
+            "routing_on_it": accepted,
+        },
+    )
+    return info.language if accepted else None
+
+
 def _force_qwen3_cpu_reload() -> None:
     """Drop the current (mps-resident) model and reload on cpu. One-shot retry
     path for MPS op-gap RuntimeError. Called with _qwen3_model already loaded.
@@ -184,80 +226,87 @@ def run(
     known_lyrics: str | None = None,
 ) -> dict:
     started = _now_ms()
+    language_hint = language
     log.info(job_id, "starting", {"has_lyrics": bool(known_lyrics), "language": language})
 
-    # Resolve the flow and the *concrete* backend we're about to run.
-    # flow.transcribe is advisory (what the language prefers); backend is
-    # what actually executes after accounting for availability. The audio
-    # URI is picked off the concrete backend, not the flow — so if Qwen3
-    # isn't wired yet we still feed whisper its native input (vocals).
-    flow = flow_for(language)
-    backend = flow.transcribe
-    if backend == "qwen3" and not _QWEN3_AVAILABLE:
-        log.warn(
-            job_id,
-            "qwen3 backend unavailable; falling back to whisper",
-            {"language": language, "flow_input": flow.transcribe_input},
-        )
-        backend = "whisper"
-    # CPU deploys can't run Qwen3-ASR-1.7B in any useful time. FORCE_WHISPER=1
-    # is the deploy-time kill-switch that pins the backend to faster-whisper
-    # regardless of the language flow. No-op on GPU deploys (don't set it).
-    if backend == "qwen3" and os.environ.get("FORCE_WHISPER") == "1":
-        log.info(
-            job_id,
-            "FORCE_WHISPER=1 — pinning to whisper",
-            {"language": language},
-        )
-        backend = "whisper"
-
-    audio_input = input_for_backend(backend)  # qwen3 → "mix", whisper → "vocals"
-    audio_uri = source_uri if audio_input == "mix" else vocals_uri
-    if audio_input == "mix" and not source_uri:
-        # Orchestrator didn't pass the original upload (e.g. a stale caller).
-        # Transcribing the vocals stem is still correct, just not ideal.
-        log.warn(job_id, "flow wanted mix but source_uri missing; using vocals")
-        audio_uri = vocals_uri
-        audio_input = "vocals"
-
-    log.info(
-        job_id,
-        "flow resolved",
-        {
-            "language_hint": language,
-            "backend": backend,
-            "audio_input": audio_input,
-            "flow_transcribe": flow.transcribe,
-            "flow_align": flow.align,
-        },
-    )
-
-    # Download the chosen audio and dispatch.
     with tempfile.TemporaryDirectory(prefix=f"transcribe-{job_id}-") as tmp_s:
         tmp = Path(tmp_s)
-        audio_obj = object_path_from_gs_uri(audio_uri)
-        local_audio = tmp / ("mix.bin" if audio_input == "mix" else "vocals.wav")
-        log.debug(job_id, "downloading audio", {"object": audio_obj, "input": audio_input})
-        download_file(audio_obj, local_audio)
-        # RMS-VAD always runs on the vocals stem (absence of energy on the
-        # isolated stem is ground truth for instrumental breaks). Download
-        # separately if the ASR input was the mix.
+
+        # Vocals stem first, before routing: RMS-VAD always runs on it
+        # (absence of energy on the isolated stem is ground truth for
+        # instrumental breaks), and when no language hint arrived the LID
+        # pass needs it too.
+        local_vocals = tmp / "vocals.wav"
+        log.debug(job_id, "downloading vocals", {"object": object_path_from_gs_uri(vocals_uri)})
+        download_file(object_path_from_gs_uri(vocals_uri), local_vocals)
+        vocal_activity = vad.detect(local_vocals)
+
+        if not language:
+            language = _detect_language(local_vocals, vocal_activity, job_id)
+
+        # Resolve the flow and the *concrete* backend we're about to run.
+        # flow.transcribe is advisory (what the language prefers); backend is
+        # what actually executes after accounting for availability. The audio
+        # URI is picked off the concrete backend, not the flow — so if Qwen3
+        # isn't wired yet we still feed whisper its native input (vocals).
+        flow = flow_for(language)
+        backend = flow.transcribe
+        if backend == "qwen3" and not _QWEN3_AVAILABLE:
+            log.warn(
+                job_id,
+                "qwen3 backend unavailable; falling back to whisper",
+                {"language": language, "flow_input": flow.transcribe_input},
+            )
+            backend = "whisper"
+        # CPU deploys can't run Qwen3-ASR-1.7B in any useful time. FORCE_WHISPER=1
+        # is the deploy-time kill-switch that pins the backend to faster-whisper
+        # regardless of the language flow. No-op on GPU deploys (don't set it).
+        if backend == "qwen3" and os.environ.get("FORCE_WHISPER") == "1":
+            log.info(
+                job_id,
+                "FORCE_WHISPER=1 — pinning to whisper",
+                {"language": language},
+            )
+            backend = "whisper"
+
+        audio_input = input_for_backend(backend)  # qwen3 → "mix", whisper → "vocals"
+        if audio_input == "mix" and not source_uri:
+            # Orchestrator didn't pass the original upload (e.g. a stale caller).
+            # Transcribing the vocals stem is still correct, just not ideal.
+            log.warn(job_id, "flow wanted mix but source_uri missing; using vocals")
+            audio_input = "vocals"
+
+        log.info(
+            job_id,
+            "flow resolved",
+            {
+                "language_hint": language_hint,
+                "language": language,
+                "backend": backend,
+                "audio_input": audio_input,
+                "flow_transcribe": flow.transcribe,
+                "flow_align": flow.align,
+            },
+        )
+
         if audio_input == "mix":
-            vocals_obj = object_path_from_gs_uri(vocals_uri)
-            local_vocals = tmp / "vocals.wav"
-            download_file(vocals_obj, local_vocals)
+            local_audio = tmp / "mix.bin"
+            log.debug(job_id, "downloading mix", {"object": object_path_from_gs_uri(source_uri)})
+            download_file(object_path_from_gs_uri(source_uri), local_audio)
         else:
-            local_vocals = local_audio
+            local_audio = local_vocals
 
         if backend == "qwen3":
-            # known_lyrics biasing is NOT supported by the local qwen-asr
-            # package; context biasing exists only in the DashScope cloud
-            # API. We log once per request when a caller passed it.
+            # known_lyrics rides qwen-asr's `context` parameter, which lands
+            # in the model's system prompt — the local-package equivalent of
+            # DashScope's context biasing. Most valuable exactly here (rare
+            # vocabulary, Turkish), so don't drop it.
+            context = (known_lyrics or "").strip()[:_QWEN3_CONTEXT_MAX]
             if known_lyrics:
                 log.info(
                     job_id,
-                    "qwen3 ignoring known_lyrics (not supported by local qwen-asr package)",
-                    {},
+                    "qwen3 biasing with known_lyrics",
+                    {"chars": len(context)},
                 )
             model = _load_qwen3()
             qwen_lang = _ISO_TO_QWEN.get(language) if language else None
@@ -269,6 +318,7 @@ def run(
             try:
                 results = model.transcribe(
                     audio=str(local_audio),
+                    context=context,
                     language=qwen_lang,
                     return_time_stamps=False,
                 )
@@ -283,6 +333,7 @@ def run(
                     _force_qwen3_cpu_reload()
                     results = _qwen3_model.transcribe(
                         audio=str(local_audio),
+                        context=context,
                         language=qwen_lang,
                         return_time_stamps=False,
                     )
@@ -302,8 +353,6 @@ def run(
             segments = (
                 [{"text": text, "start": 0.0, "end": duration}] if text else []
             )
-
-            vocal_activity = vad.detect(local_vocals)
 
             finished = _now_ms()
             log.info(
@@ -346,9 +395,6 @@ def run(
             if not text or seg.end <= seg.start:
                 continue
             segments.append({"text": text, "start": float(seg.start), "end": float(seg.end)})
-
-        # RMS-VAD on the vocals stem regardless of what the ASR model ate.
-        vocal_activity = vad.detect(local_vocals)
 
     finished = _now_ms()
     log.info(

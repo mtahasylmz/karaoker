@@ -33,15 +33,21 @@ COPY packages/contracts/json-schema ./packages/contracts/json-schema
 
 RUN uv sync --package annemusic-stage-align --frozen --no-dev
 
-# Qwen3-ForcedAligner (Apache-2.0) lives in qwen-asr[vllm]. Can't live in
-# align/pyproject.toml because qwen-asr[vllm] pins torchaudio==2.9.1 which
-# conflicts with the torch>=2.6,<2.9 / torchaudio>=2.6,<2.9 floor the
-# whisperx+pyannote path needs. Install it here as a second pip step so the
-# GPU image has both the Qwen3 and whisperx paths available at runtime.
-# Use --no-deps so pip doesn't retry the torchaudio pin; align.pipeline
-# already guards the import with _QWEN3_IMPORT_OK.
-RUN uv pip install --no-deps 'qwen-asr[vllm]>=0.0.6' \
- || echo "qwen-asr[vllm] install failed; align will use whisperx-only path"
+# Qwen3-ForcedAligner (Apache-2.0) ships in qwen-asr. It can't live in
+# align/pyproject.toml because qwen-asr pins torchaudio==2.9.1, conflicting
+# with the torch>=2.6,<2.9 floor the whisperx path needs — so qwen-asr
+# itself installs --no-deps, and its import-time deps that the whisperx
+# tree doesn't already provide (librosa, nagisa, soynlp, qwen-omni-utils,
+# sox, pytz, accelerate; transformers 4.57.6 is already locked) install
+# normally. No [vllm] extra: the 0.6B aligner runs via transformers.
+# The final import is the contract — if either backend can't import, the
+# BUILD fails here instead of every prod job silently downgrading to
+# CPU wav2vec2 on a GPU instance (pipeline._QWEN3_IMPORT_OK guard).
+RUN uv pip install --no-deps 'qwen-asr>=0.0.6' \
+ && uv pip install librosa 'nagisa==0.2.11' 'soynlp==0.0.493' \
+      qwen-omni-utils sox pytz 'accelerate==1.12.0' \
+ && /app/.venv/bin/python -c \
+      "import whisperx; from qwen_asr import Qwen3ForcedAligner; print('align backends OK: whisperx + qwen3')"
 
 # wav2vec2 checkpoints (~360 MB English, ~1.2 GB Turkish) download on first
 # request per revision and cache at $TORCH_HOME.

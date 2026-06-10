@@ -13,6 +13,7 @@ export function Upload({
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
+  const [language, setLanguage] = useState("");
   const [hashPct, setHashPct] = useState<number | null>(null);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -41,6 +42,7 @@ export function Upload({
         content_type: file.type,
         title: title || undefined,
         artist: artist || undefined,
+        language: language || undefined,
       });
 
       if (u.need_upload && u.signed_put_url) {
@@ -77,7 +79,7 @@ export function Upload({
         onChange={(e) => setFile(e.target.files?.[0] ?? null)}
       />
 
-      <div style={{ marginTop: "0.75rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+      <div style={{ marginTop: "0.75rem", display: "grid", gridTemplateColumns: "2fr 2fr 1fr", gap: "0.5rem" }}>
         <input
           type="text"
           placeholder="Song title (optional)"
@@ -90,6 +92,25 @@ export function Upload({
           value={artist}
           onChange={(e) => setArtist(e.target.value)}
         />
+        <select
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+          title="Song language — leave on auto unless detection gets it wrong"
+        >
+          <option value="">Language: auto</option>
+          <option value="tr">Türkçe</option>
+          <option value="en">English</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="es">Español</option>
+          <option value="it">Italiano</option>
+          <option value="pt">Português</option>
+          <option value="ru">Русский</option>
+          <option value="ar">العربية</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
+          <option value="zh">中文</option>
+        </select>
       </div>
 
       <button onClick={submit} disabled={busy || !file}>

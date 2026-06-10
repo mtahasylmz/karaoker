@@ -27,13 +27,12 @@ dependencies = [
 ]
 
 # Qwen3-ForcedAligner (Apache-2.0) is not listed here as an optional extra
-# because `qwen-asr[vllm]` pins torchaudio==2.9.1 which conflicts with the
+# because `qwen-asr` pins torchaudio==2.9.1 which conflicts with the
 # torch>=2.6 / torchaudio>=2.6 floor this workspace uses. The GPU Cloud
-# Run image installs it in a second pip step after the base deps:
-#     RUN pip install --no-deps "qwen-asr[vllm]>=0.0.6" && \
-#         pip install "qwen-asr[vllm]>=0.0.6"
-# The import in src/align/pipeline.py is guarded, so CPU-only hosts keep
-# running the whisperx path without needing qwen-asr present.
+# Run image (stages/align/Dockerfile) installs `qwen-asr --no-deps` plus
+# its import-time deps explicitly, then asserts both backends import at
+# build time. The import in src/align/pipeline.py is guarded, so CPU-only
+# hosts keep running the whisperx path without needing qwen-asr present.
 
 [build-system]
 requires = ["hatchling"]
