@@ -8,9 +8,9 @@ if "SSL_CERT_FILE" not in os.environ:
     os.environ["SSL_CERT_FILE"] = certifi.where()
     os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 
-from shared import create_logger, flush_logs
+from shared import create_logger, flush_logs, verify_stage_auth
 from shared.schemas import validate, ValidationError
 
 from . import pipeline
@@ -24,7 +24,7 @@ def ping() -> dict:
     return {"ok": True, "service": "transcribe", "model": os.environ.get("WHISPER_MODEL", "small")}
 
 
-@app.post("/process")
+@app.post("/process", dependencies=[Depends(verify_stage_auth)])
 async def process(request: Request) -> dict:
     body = await request.json()
     try:

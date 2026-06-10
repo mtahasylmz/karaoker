@@ -4,6 +4,8 @@
  * browser plays the original video and overlays the .ass via JASSUB.
  */
 
+import { timingSafeEqual } from "node:crypto";
+
 import { serve as nodeServe } from "@hono/node-server";
 import { Hono } from "hono";
 import {
@@ -21,6 +23,21 @@ const log = createLogger("compose");
 const app = new Hono();
 
 app.get("/ping", (c) => c.json({ ok: true, service: "compose" }));
+
+// Stage auth: Cloud Run ingress is open (QStash can't mint OIDC tokens for
+// the orchestrator's context.call), so callers prove themselves with a
+// shared bearer token instead. Unset STAGE_AUTH_TOKEN = open (local dev).
+app.use("/process", async (c, next) => {
+  const token = process.env.STAGE_AUTH_TOKEN ?? "";
+  if (token) {
+    const got = Buffer.from(c.req.header("authorization") ?? "");
+    const want = Buffer.from(`Bearer ${token}`);
+    if (got.length !== want.length || !timingSafeEqual(got, want)) {
+      return c.json({ detail: "missing or invalid stage token" }, 401);
+    }
+  }
+  await next();
+});
 
 app.post("/process", async (c) => {
   const started = Date.now();

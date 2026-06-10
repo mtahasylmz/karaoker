@@ -41,6 +41,17 @@ const urls = () => ({
   compose: required("COMPOSE_URL"),
 });
 
+// context.call() executes from Upstash's infra, which can't mint GCP OIDC
+// tokens — stages are therefore deployed with open ingress and verify this
+// shared bearer token at the app layer instead (shared-py auth.py / compose
+// main.ts). Unset = local dev against unauthenticated stages.
+const stageHeaders = (): Record<string, string> => {
+  const h: Record<string, string> = { "content-type": "application/json" };
+  const token = process.env.STAGE_AUTH_TOKEN;
+  if (token) h["authorization"] = `Bearer ${token}`;
+  return h;
+};
+
 export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
   const p = context.requestPayload;
   const { job_id } = p;
@@ -66,7 +77,7 @@ export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
     url: `${u.separate}/process`,
     method: "POST",
     body: { job_id, source_uri: p.source_uri },
-    headers: { "content-type": "application/json" },
+    headers: stageHeaders(),
     retries: 2,
   });
   if (separate.status < 200 || separate.status >= 300) {
@@ -89,7 +100,7 @@ export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
       language: p.language,
       known_lyrics: p.known_lyrics,
     },
-    headers: { "content-type": "application/json" },
+    headers: stageHeaders(),
     retries: 2,
   });
   if (transcribe.status < 200 || transcribe.status >= 300) {
@@ -110,7 +121,7 @@ export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
       // instrumental-break UI without a second round-trip to transcribe.
       vocal_activity: tr.vocal_activity,
     },
-    headers: { "content-type": "application/json" },
+    headers: stageHeaders(),
     retries: 2,
   });
   if (align.status < 200 || align.status >= 300) {
@@ -132,7 +143,7 @@ export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
       // always produces it and align always forwards it.
       vocal_activity: al.vocal_activity,
     },
-    headers: { "content-type": "application/json" },
+    headers: stageHeaders(),
     retries: 2,
   });
   if (compose.status < 200 || compose.status >= 300) {

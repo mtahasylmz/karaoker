@@ -44,6 +44,12 @@ function needsOidc(url: string): boolean {
 }
 
 async function authHeader(url: string): Promise<Record<string, string>> {
+  // Preferred path: the shared stage bearer token (stages run with open
+  // Cloud Run ingress and verify this at the app layer — same credential
+  // the orchestrator's context.call sends). OIDC below is the legacy
+  // IAM-gated fallback for stages not yet redeployed with a token.
+  const token = process.env.STAGE_AUTH_TOKEN;
+  if (token) return { authorization: `Bearer ${token}` };
   if (!needsOidc(url)) return {};
   const audience = new URL(url).origin;
   let client = _tokenClients.get(audience);

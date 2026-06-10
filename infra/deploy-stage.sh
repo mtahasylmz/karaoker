@@ -24,6 +24,12 @@ set -euo pipefail
 : "${GCS_BUCKET:?set GCS_BUCKET}"
 : "${UPSTASH_REDIS_REST_URL:?set UPSTASH_REDIS_REST_URL (stages log to Redis Streams)}"
 : "${UPSTASH_REDIS_REST_TOKEN:?set UPSTASH_REDIS_REST_TOKEN}"
+# Stages run with open Cloud Run ingress (QStash, which executes the
+# orchestrator's context.call, cannot mint GCP OIDC tokens) and verify this
+# shared bearer token on /process instead. Generate once:
+#   openssl rand -hex 32
+# and set the same value on the orchestrator and apps/api.
+: "${STAGE_AUTH_TOKEN:?set STAGE_AUTH_TOKEN (openssl rand -hex 32; shared with orchestrator + api)}"
 : "${AR_REPO:=annemusic}"
 
 STAGE="${1:?usage: deploy-stage.sh <stage> [--gpu|--cpu] [--warm] [--shadow] [--code-from-gcs] [--region <r>]}"
@@ -66,7 +72,6 @@ esac
 
 SVC="annemusic-${STAGE}"
 WORKER_SA="annemusic-worker@${GCP_PROJECT}.iam.gserviceaccount.com"
-API_SA="annemusic-api@${GCP_PROJECT}.iam.gserviceaccount.com"
 SHA="$(git rev-parse --short HEAD)"
 IMAGE="${REGION}-docker.pkg.dev/${GCP_PROJECT}/${AR_REPO}/${STAGE}"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -106,7 +111,7 @@ gcloud builds submit \
 
 echo "==> Deploying ${SVC} to Cloud Run (${REGION})"
 
-ENV_PAIRS="GCS_BUCKET=${GCS_BUCKET},UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL},UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}"
+ENV_PAIRS="GCS_BUCKET=${GCS_BUCKET},UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL},UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN},STAGE_AUTH_TOKEN=${STAGE_AUTH_TOKEN}"
 if [[ $CODE_FROM_GCS == 1 ]]; then
   ENV_PAIRS="${ENV_PAIRS},CODE_GCS_PATH=code/${STAGE}"
 fi
@@ -115,7 +120,10 @@ DEPLOY_FLAGS=(
   --image "${IMAGE}:${SHA}"
   --region "$REGION"
   --service-account "$WORKER_SA"
-  --no-allow-unauthenticated
+  # Open ingress by design: the orchestrator's context.call runs from
+  # Upstash's infra and can't carry a GCP OIDC token. /process enforces
+  # STAGE_AUTH_TOKEN at the app layer instead (shared-py auth.py).
+  --allow-unauthenticated
   --set-env-vars "$ENV_PAIRS"
   --project "$GCP_PROJECT"
 )
@@ -160,15 +168,22 @@ fi
 gcloud run deploy "$SVC" "${DEPLOY_FLAGS[@]}"
 
 if [[ $SHADOW == 1 ]]; then
+  # gcloud's projection language has no JSONPath filters; pull the traffic
+  # block as JSON and pick the "next"-tagged URL in python. (The previous
+  # [?(@.tag=="next")] projection silently returned empty, skipping warm-up.)
   TAG_URL=$(gcloud run services describe "$SVC" --region="$REGION" --project="$GCP_PROJECT" \
-    --format='value(status.traffic[?(@.tag=="next")].url)' | head -n1)
-  echo "==> Shadow revision URL: $TAG_URL"
-  if [[ -n "$TAG_URL" ]]; then
-    TOKEN=$(gcloud auth print-identity-token 2>/dev/null || true)
+    --format='json(status.traffic)' | python3 -c '
+import json, sys
+traffic = json.load(sys.stdin).get("status", {}).get("traffic", [])
+urls = [t.get("url", "") for t in traffic if t.get("tag") == "next" and t.get("url")]
+print(urls[0] if urls else "")')
+  echo "==> Shadow revision URL: ${TAG_URL:-<not found>}"
+  if [[ -z "$TAG_URL" ]]; then
+    echo "WARNING: could not resolve the 'next' tag URL; traffic switch will hit a cold revision" >&2
+  else
     echo "==> Pinging /ping until 200 (warm-up)…"
     for i in $(seq 1 60); do
-      code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
-        ${TOKEN:+-H "Authorization: Bearer $TOKEN"} "$TAG_URL/ping" || echo 0)
+      code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$TAG_URL/ping" || echo 0)
       if [[ "$code" == "200" ]]; then echo "  ready after $i tries"; break; fi
       sleep 2
     done
@@ -177,13 +192,6 @@ if [[ $SHADOW == 1 ]]; then
   gcloud run services update-traffic "$SVC" --region="$REGION" --project="$GCP_PROJECT" \
     --to-latest --quiet
 fi
-
-echo "==> Granting api SA invoker on ${SVC}"
-gcloud run services add-iam-policy-binding "$SVC" \
-  --member="serviceAccount:${API_SA}" \
-  --role=roles/run.invoker \
-  --region="$REGION" \
-  --project "$GCP_PROJECT" >/dev/null
 
 URL=$(gcloud run services describe "$SVC" \
   --region="$REGION" --project "$GCP_PROJECT" \

@@ -45,7 +45,7 @@ app.use(
   cors({
     origin: optional("CORS_ORIGINS", "*") === "*" ? "*" : optional("CORS_ORIGINS").split(","),
     allowMethods: ["GET", "POST", "OPTIONS"],
-    allowHeaders: ["content-type"],
+    allowHeaders: ["content-type", "x-manual-key"],
   }),
 );
 
@@ -333,6 +333,22 @@ app.get("/jobs/:job_id", async (c) => {
 const MANUAL_STAGES: readonly StageName[] = [
   "separate", "transcribe", "align", "compose", "record-mix",
 ] as const;
+
+// The /manual surface can drive arbitrarily many real (GPU-priced) stage
+// runs and mint signed GET URLs, so it is closed by default outside local
+// dev: set MANUAL_TOKEN to enable it in prod, and the browser must echo it
+// in x-manual-key (the /manual UI prompts once and stores it).
+app.use("/manual/*", async (c, next) => {
+  const token = optional("MANUAL_TOKEN", "");
+  if (token) {
+    if ((c.req.header("x-manual-key") ?? "") !== token) {
+      return c.json({ detail: "manual key required" }, 401);
+    }
+  } else if (!isLocal()) {
+    return c.json({ detail: "manual harness disabled (set MANUAL_TOKEN to enable)" }, 403);
+  }
+  await next();
+});
 
 app.post("/manual/job-id", (c) => c.json({ job_id: newJobId() }));
 

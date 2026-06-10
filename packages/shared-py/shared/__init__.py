@@ -3,6 +3,7 @@
 Import surface kept tiny — each stage pulls exactly what it needs.
 """
 
+from .auth import verify_stage_auth
 from .logger import create_logger, Logger, flush_logs
 from .redis_client import redis
 from .env import required, optional, optional_int, is_local
@@ -26,6 +27,7 @@ from .gcs import (
 )
 
 __all__ = [
+    "verify_stage_auth",
     "create_logger",
     "Logger",
     "flush_logs",
