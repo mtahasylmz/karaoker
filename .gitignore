@@ -29,3 +29,7 @@ node_modules/
 # playwright session artifacts
 .playwright-mcp/
 phase-*.png
+
+# claude code session state (worktrees etc.)
+.claude/
+sample-music/

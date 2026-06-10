@@ -43,6 +43,22 @@ export async function signedPutUrl(
   return url;
 }
 
+/** V4 signed GET URL for browser playback / preview. Used by /manual to pull
+ * intermediate stage artifacts from GCS without needing a public bucket. */
+export async function signedGetUrl(
+  objectPath: string,
+  expiresInSeconds = 900,
+): Promise<string> {
+  const [url] = await bucket()
+    .file(objectPath)
+    .getSignedUrl({
+      version: "v4",
+      action: "read",
+      expires: Date.now() + expiresInSeconds * 1000,
+    });
+  return url;
+}
+
 export function publicUrl(objectPath: string): string {
   const root = devRoot();
   if (root) return `file://${pathResolve(root, objectPath)}`;

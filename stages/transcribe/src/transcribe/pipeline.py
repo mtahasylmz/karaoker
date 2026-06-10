@@ -200,6 +200,16 @@ def run(
             {"language": language, "flow_input": flow.transcribe_input},
         )
         backend = "whisper"
+    # CPU deploys can't run Qwen3-ASR-1.7B in any useful time. FORCE_WHISPER=1
+    # is the deploy-time kill-switch that pins the backend to faster-whisper
+    # regardless of the language flow. No-op on GPU deploys (don't set it).
+    if backend == "qwen3" and os.environ.get("FORCE_WHISPER") == "1":
+        log.info(
+            job_id,
+            "FORCE_WHISPER=1 — pinning to whisper",
+            {"language": language},
+        )
+        backend = "whisper"
 
     audio_input = input_for_backend(backend)  # qwen3 → "mix", whisper → "vocals"
     audio_uri = source_uri if audio_input == "mix" else vocals_uri

@@ -4,7 +4,14 @@ import { cors } from "hono/cors";
 import { Client } from "@upstash/workflow";
 import { createLogger } from "@annemusic/shared-ts/logger";
 import { required, optional, optionalNumber, isLocal } from "@annemusic/shared-ts/env";
-import { signedPutUrl, objectExists, publicUrl } from "@annemusic/shared-ts/gcs";
+import {
+  signedPutUrl,
+  signedGetUrl,
+  objectExists,
+  publicUrl,
+  objectPathFromGsUri,
+} from "@annemusic/shared-ts/gcs";
+import { proxyStage, type StageName } from "./stage-proxy.js";
 import {
   appendUserJob,
   claimVideo,
@@ -179,6 +186,8 @@ app.post("/uploads", async (c) => {
     });
   }
 
+  const bucket = required("GCS_BUCKET");
+
   // 2. upload record exists AND object present → skip PUT.
   const existing = await getUpload(sha256);
   if (existing?.object_path && (await objectExists(existing.object_path))) {
@@ -187,6 +196,7 @@ app.post("/uploads", async (c) => {
       status: "uploaded",
       sha256,
       object_path: existing.object_path,
+      gs_uri: `gs://${bucket}/${existing.object_path}`,
       need_upload: false,
     });
   }
@@ -212,6 +222,7 @@ app.post("/uploads", async (c) => {
     status: "pending_upload",
     sha256,
     object_path,
+    gs_uri: `gs://${bucket}/${object_path}`,
     need_upload: true,
     signed_put_url,
     expires_in: 900,
@@ -309,6 +320,97 @@ app.get("/jobs/:job_id", async (c) => {
   const sinceMs = Number(c.req.query("since_ms") ?? job.created_at) || 0;
   const logs = await logsForJob(id, sinceMs);
   return c.json({ ...job, logs });
+});
+
+// ---------- manual test harness (/manual) ----------
+//
+// The /manual browser UI calls a single stage at a time so a human can
+// observe each intermediate artifact before advancing. Routes here proxy
+// to the stage endpoints with OIDC auth (prod) or pass through (local dev),
+// mint signed GET URLs for GCS artifacts, and — in dev — stream local files
+// so browser audio players can read them.
+
+const MANUAL_STAGES: readonly StageName[] = [
+  "separate", "transcribe", "align", "compose", "record-mix",
+] as const;
+
+app.post("/manual/job-id", (c) => c.json({ job_id: newJobId() }));
+
+app.post("/manual/signed-get", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const uri = typeof body?.uri === "string" ? body.uri : "";
+  if (!uri) return c.json({ detail: "uri required" }, 400);
+  let path: string;
+  try {
+    path = objectPathFromGsUri(uri);
+  } catch (e) {
+    return c.json({ detail: `invalid uri: ${(e as Error).message}` }, 400);
+  }
+  if (process.env.DEV_FS_ROOT) {
+    // Dev mode: the browser can't open file:// via fetch, so point it at the
+    // streaming endpoint below. Dev takes precedence over signing so the same
+    // harness works without real GCS credentials.
+    return c.json({ url: `/api/manual/file?path=${encodeURIComponent(path)}` });
+  }
+  // GCS_URL_MODE=public → hand back the stable public URL (infra/setup.sh
+  // grants allUsers:objectViewer on the annemusic bucket, so this works
+  // without any credentials on the browser side and without the api having
+  // to sign).
+  if (optional("GCS_URL_MODE", "public") !== "signed") {
+    return c.json({ url: publicUrl(path) });
+  }
+  const url = await signedGetUrl(path, 900);
+  return c.json({ url });
+});
+
+app.get("/manual/file", async (c) => {
+  // Dev-mode only: stream files from DEV_FS_ROOT. Restrict to paths under
+  // uploads/ and stages/ so nothing else on disk is exposed.
+  const root = process.env.DEV_FS_ROOT;
+  if (!root) return c.json({ detail: "dev only (DEV_FS_ROOT not set)" }, 403);
+  const raw = c.req.query("path") ?? "";
+  if (!raw.startsWith("uploads/") && !raw.startsWith("stages/")) {
+    return c.json({ detail: "path must be under uploads/ or stages/" }, 403);
+  }
+  if (raw.includes("..")) return c.json({ detail: "no .." }, 403);
+  const fs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const abs = nodePath.join(root, raw);
+  if (!fs.existsSync(abs)) return c.json({ detail: "not found" }, 404);
+  const ext = nodePath.extname(abs).toLowerCase();
+  const mime =
+    ext === ".wav" ? "audio/wav"
+    : ext === ".mp3" ? "audio/mpeg"
+    : ext === ".mp4" ? "video/mp4"
+    : ext === ".webm" ? "video/webm"
+    : ext === ".ass" ? "text/plain; charset=utf-8"
+    : ext === ".json" ? "application/json"
+    : "application/octet-stream";
+  const stream = fs.createReadStream(abs);
+  const web = new ReadableStream({
+    start(ctrl) {
+      stream.on("data", (chunk) => ctrl.enqueue(chunk));
+      stream.on("end", () => ctrl.close());
+      stream.on("error", (err) => ctrl.error(err));
+    },
+    cancel() { stream.destroy(); },
+  });
+  return new Response(web, { headers: { "content-type": mime } });
+});
+
+app.post("/manual/stages/:stage/process", async (c) => {
+  const stage = c.req.param("stage") as StageName;
+  if (!MANUAL_STAGES.includes(stage)) {
+    return c.json({ detail: `unknown stage: ${stage}` }, 404);
+  }
+  const body = await c.req.json().catch(() => ({}));
+  try {
+    const { status, body: out } = await proxyStage(stage, body);
+    return c.json(out as Record<string, unknown>, status as 200);
+  } catch (e) {
+    log.error(undefined, "stage proxy failed", e, { stage });
+    return c.json({ detail: `${(e as Error).name}: ${(e as Error).message}` }, 502);
+  }
 });
 
 const port = optionalNumber("PORT", 8082);

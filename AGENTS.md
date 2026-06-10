@@ -2,7 +2,7 @@
 
 Family-scale karaoke-video generator. User uploads a music video; the system returns a manifest pointing at (a) the original video, (b) a vocals-removed instrumental track, and (c) an ASS subtitle file that the browser overlays in real time with per-word fill animation via JASSUB. A "record-along" path lets users sing with the video and mixes their recording back over the instrumental.
 
-**Status:** MVP (monolithic) shipped 2026-04-23 on Cloud Run, then restructured into stages with explicit contracts (phases A–D complete). Currently in Phase E: deploy hardening on the `hop-table` branch.
+**Status:** MVP (monolithic) shipped 2026-04-23 on Cloud Run. Currently restructuring into stages with explicit contracts. Full plan: `/Users/mtahasylmz/.Codex/plans/glowing-gathering-ocean.md`.
 
 ## Architecture
 
@@ -68,11 +68,11 @@ infra/
 
 ## Current phase status
 
-- ✅ **Phase A** — Clean slate, monorepo scaffold, `packages/contracts` with Zod schemas exported as JSON Schema.
-- ✅ **Phase B** — Shared logger + Redis-Streams log tail CLI (`pnpm logs`).
-- ✅ **Phase C** — Orchestrator + API + web, end-to-end on localhost (stage stubs retired; `apps/stage-stub` kept for contract smoke tests).
-- ✅ **Phase D** — ML logic ported per stage: separate (RoFormer/demucs), transcribe (flow-routed Qwen3-ASR / faster-whisper), align (flow-routed Qwen3-ForcedAligner / whisperx), compose (TS), record-mix (v2 DSP knobs).
-- 🔜 **Phase E** — Cloud Run deploy hardening: Dockerfiles + `deploy-stage.sh` + `/manual` harness exist; auth topology, failure paths, and model-weight caching being fixed before first prod run.
+- ✅ **Phase A** — Clean slate, monorepo scaffold, `packages/contracts` with 24 Zod schemas exported as JSON Schema.
+- 🔜 **Phase B** — Shared logger + Redis-Streams log tail CLI.
+- **Phase C** — Orchestrator + API + web skeleton, every stage returns stubs. End-to-end wiring proven without ML.
+- **Phase D** — Port ML logic per stage (separate / transcribe / align / compose / record-mix). Each stage is safe to work on in its own agent session once C is live.
+- **Phase E** — Deploy to Cloud Run.
 
 ## Key project scars (do not re-learn)
 
