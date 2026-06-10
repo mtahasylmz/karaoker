@@ -16,7 +16,9 @@ Required env at runtime:
   GCS_BUCKET   — set anyway by the stage; reused here
 
 Optional:
-  CODE_GCS_PATH — gs://${GCS_BUCKET}/${CODE_GCS_PATH}/ rsync source
+  CODE_GCS_PATH   — gs://${GCS_BUCKET}/${CODE_GCS_PATH}/ rsync source
+  MODEL_CACHE_SRC — path to the GCS-FUSE-mounted HF cache mirror (filled by
+                    infra/model-fetch); copied into local HF_HOME at boot
 """
 
 from __future__ import annotations
@@ -25,6 +27,52 @@ import os
 import sys
 import time
 from pathlib import Path
+
+
+def _seed_model_cache() -> None:
+    """Copy the HF cache mirror (read-only GCS FUSE mount, populated by
+    infra/model-fetch) into local HF_HOME, so model loads hit a warm,
+    writable cache. A same-region FUSE read beats re-downloading multi-GB
+    weights from HuggingFace on every cold start, and a plain file copy
+    sidesteps gcsfuse's flock/write semantics entirely (HF's filelock does
+    not work on FUSE). Cloud Run's writable filesystem is per-instance
+    tmpfs, so this runs once per instance, not once per revision.
+
+    No-op when MODEL_CACHE_SRC is unset (local dev, CPU deploys) or the
+    mount is missing.
+    """
+    src = os.environ.get("MODEL_CACHE_SRC")
+    if not src:
+        return
+    src_path = Path(src)
+    if not src_path.is_dir():
+        print(f"[entrypoint] MODEL_CACHE_SRC={src} not mounted; skipping seed", flush=True)
+        return
+    import shutil
+
+    dst = Path(os.environ.get("HF_HOME", "/app/.cache/huggingface"))
+    started = time.monotonic()
+    copied = skipped = 0
+    copied_bytes = 0
+    for p in src_path.rglob("*"):
+        if not p.is_file():
+            continue
+        local = dst / p.relative_to(src_path)
+        size = p.stat().st_size
+        if local.exists() and local.stat().st_size == size:
+            skipped += 1
+            continue
+        local.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(p, local)
+        copied += 1
+        copied_bytes += size
+    elapsed = time.monotonic() - started
+    print(
+        f"[entrypoint] model cache seeded from {src}: {copied} files "
+        f"({copied_bytes / 1e9:.2f} GB) copied, {skipped} already present "
+        f"({elapsed:.1f}s)",
+        flush=True,
+    )
 
 
 def _sync_code() -> None:
@@ -67,6 +115,7 @@ def _sync_code() -> None:
 
 
 def main() -> int:
+    _seed_model_cache()
     _sync_code()
     py_module = os.environ["PY_MODULE"]
     # The image's `uv sync` step landed the venv at /app/.venv. Use its

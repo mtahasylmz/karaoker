@@ -43,8 +43,11 @@ COPY packages/contracts/json-schema ./packages/contracts/json-schema
 RUN uv sync --package annemusic-stage-transcribe --frozen --no-dev
 
 # Qwen3-ASR weights (~3.5 GB) stay out of the image — too big to push per
-# rebuild. Cloud Run's image-fs cache keeps them warm across container
-# starts within a revision; first request per revision pays the download.
+# rebuild. Cloud Run's writable filesystem is per-instance tmpfs (nothing
+# survives an instance restart), so deploy-stage.sh mounts the GCS weight
+# mirror (filled by infra/model-fetch) and stage-entrypoint.py copies it
+# into HF_HOME at boot. Without the mirror, the first request per instance
+# pays the full HuggingFace download into memory.
 
 # Code-from-GCS support (see infra/stage-entrypoint.py). Production deploys
 # leave CODE_GCS_PATH unset → entrypoint just exec's the baked code.

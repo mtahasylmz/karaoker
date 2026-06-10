@@ -115,6 +115,14 @@ ENV_PAIRS="GCS_BUCKET=${GCS_BUCKET},UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_
 if [[ $CODE_FROM_GCS == 1 ]]; then
   ENV_PAIRS="${ENV_PAIRS},CODE_GCS_PATH=code/${STAGE}"
 fi
+if [[ $GPU == 1 ]]; then
+  # HF weight mirror, populated by infra/model-fetch (Cloud Run Job).
+  # The bucket mounts read-only at /gcs (volume flags below) and
+  # stage-entrypoint.py copies models/hf into local HF_HOME at boot —
+  # same-region FUSE reads instead of multi-GB HuggingFace downloads on
+  # every cold start.
+  ENV_PAIRS="${ENV_PAIRS},MODEL_CACHE_SRC=/gcs/models/hf"
+fi
 
 DEPLOY_FLAGS=(
   --image "${IMAGE}:${SHA}"
@@ -138,6 +146,8 @@ if [[ $GPU == 1 ]]; then
     --no-cpu-throttling
     --max-instances 1
     --timeout 3600
+    --add-volume "name=models,type=cloud-storage,bucket=${GCS_BUCKET},readonly=true"
+    --add-volume-mount "volume=models,mount-path=/gcs"
   )
 else
   # ML-class stages (separate/transcribe/align/record-mix) import torch +
