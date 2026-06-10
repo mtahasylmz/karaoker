@@ -25,9 +25,24 @@ import {
   recordUpload,
   reserveUsername,
   userExists,
+  userTokenMatches,
   validSha256,
   validUsername,
 } from "./state.js";
+
+// Per-user bearer auth: POST /users returns a token once; user-scoped
+// routes require it back in x-user-token. A self-asserted username used
+// to be enough to read anyone's jobs and trigger paid GPU runs as them.
+async function userAuthError(
+  c: { req: { header: (h: string) => string | undefined }; json: (b: unknown, s: number) => Response },
+  username: string,
+): Promise<Response | null> {
+  if (!(await userExists(username))) return c.json({ detail: "unknown username" }, 404);
+  if (!(await userTokenMatches(username, c.req.header("x-user-token")))) {
+    return c.json({ detail: "missing or invalid user token" }, 401);
+  }
+  return null;
+}
 
 const log = createLogger("api");
 
@@ -46,7 +61,7 @@ app.use(
   cors({
     origin: optional("CORS_ORIGINS", "*") === "*" ? "*" : optional("CORS_ORIGINS").split(","),
     allowMethods: ["GET", "POST", "OPTIONS"],
-    allowHeaders: ["content-type", "x-manual-key"],
+    allowHeaders: ["content-type", "x-manual-key", "x-user-token"],
   }),
 );
 
@@ -63,10 +78,12 @@ app.post("/users", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const username = (body?.username ?? "").trim();
   if (!validUsername(username)) return c.json({ detail: "invalid username" }, 400);
-  const ok = await reserveUsername(username);
-  if (!ok) return c.json({ detail: "username taken" }, 409);
+  const token = await reserveUsername(username);
+  if (!token) return c.json({ detail: "username taken" }, 409);
   log.info(undefined, "user registered", { username });
-  return c.json({ username }, 201);
+  // The token is shown exactly once; the client persists it and sends it
+  // back as x-user-token on user-scoped routes.
+  return c.json({ username, token }, 201);
 });
 
 app.get("/users/:username", async (c) => {
@@ -147,7 +164,8 @@ app.post("/dev/trigger", async (c) => {
 
 app.get("/users/:username/jobs", async (c) => {
   const u = c.req.param("username");
-  if (!(await userExists(u))) return c.json({ detail: "unknown username" }, 404);
+  const denied = await userAuthError(c, u);
+  if (denied) return denied;
   const limit = Number(c.req.query("limit") ?? 20);
   const ids = await listUserJobIds(u, limit);
   const jobs = [];
@@ -163,7 +181,8 @@ app.get("/users/:username/jobs", async (c) => {
 app.post("/uploads", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { username, sha256, size, content_type, known_lyrics, title, artist, language } = body;
-  if (!(await userExists(username))) return c.json({ detail: "unknown username" }, 404);
+  const denied = await userAuthError(c, username);
+  if (denied) return denied;
   if (!validSha256(sha256)) return c.json({ detail: "sha256 must be 64 hex chars" }, 400);
   if (typeof size !== "number" || size < 1 || size > MAX_UPLOAD_BYTES) {
     return c.json({ detail: `size must be 1..${MAX_UPLOAD_BYTES}` }, 400);
@@ -257,7 +276,8 @@ function newJobId(): string {
 app.post("/jobs", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { username, sha256 } = body;
-  if (!(await userExists(username))) return c.json({ detail: "unknown username" }, 404);
+  const denied = await userAuthError(c, username);
+  if (denied) return denied;
   if (!validSha256(sha256)) return c.json({ detail: "sha256 must be 64 hex chars" }, 400);
 
   const upload = await getUpload(sha256);
@@ -332,6 +352,8 @@ app.get("/jobs/:job_id", async (c) => {
   const id = c.req.param("job_id");
   const job = await getJob(id);
   if (!job) return c.json({ detail: "unknown job" }, 404);
+  const denied = await userAuthError(c, job.username);
+  if (denied) return denied;
   // Recent logs for UI (all stages, sorted by ts).
   const sinceMs = Number(c.req.query("since_ms") ?? job.created_at) || 0;
   const logs = await logsForJob(id, sinceMs);

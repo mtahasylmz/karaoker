@@ -13,13 +13,32 @@ const now = () => String(Date.now());
 
 // ---------- users ----------
 
-export async function reserveUsername(username: string): Promise<boolean> {
-  const r = await redis().set(`user:${username}`, "1", { nx: true });
-  return Boolean(r);
+function randomHex(bytes: number): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(bytes)))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// The stored value IS the user's bearer token, returned exactly once at
+// registration. Pre-token records hold "1" and can't authenticate — those
+// users re-register (acceptable pre-launch; wipe.sh resets dev state).
+export async function reserveUsername(username: string): Promise<string | null> {
+  const token = randomHex(32);
+  const r = await redis().set(`user:${username}`, token, { nx: true });
+  return r ? token : null;
 }
 
 export async function userExists(username: string): Promise<boolean> {
   return (await redis().exists(`user:${username}`)) === 1;
+}
+
+export async function userTokenMatches(
+  username: string,
+  token: string | undefined,
+): Promise<boolean> {
+  if (!token) return false;
+  const v = await redis().get(`user:${username}`);
+  return typeof v === "string" && v.length >= 32 && v === token;
 }
 
 // ---------- uploads ----------
