@@ -10,7 +10,8 @@ import { serve as nodeServe } from "@hono/node-server";
 import { Hono } from "hono";
 import {
   ComposeRequest,
-  type ComposeResponse,
+  ComposeResponse,
+  PlaybackManifest,
 } from "@annemusic/contracts";
 import { createLogger } from "@annemusic/shared-ts/logger";
 import { uploadBuffer } from "@annemusic/shared-ts/gcs";
@@ -57,7 +58,9 @@ app.post("/process", async (c) => {
     const ass_url = await uploadBuffer(ass_object, ass, "text/x-ssa");
     log.debug(job_id, "ass uploaded", { bytes: Buffer.byteLength(ass) });
 
-    const manifest = buildManifest(req, ass_url);
+    // Producer-side contract checks: the manifest is the browser's contract
+    // and the response is the orchestrator's — fail loudly here, not there.
+    const manifest = PlaybackManifest.parse(buildManifest(req, ass_url));
     log.debug(job_id, "manifest shape", {
       lines: manifest.lines.length,
       vocal_activity: manifest.vocal_activity.length,
@@ -70,7 +73,7 @@ app.post("/process", async (c) => {
     );
     log.info(job_id, "done", { duration_ms: Date.now() - started });
 
-    const resp: ComposeResponse = {
+    const resp = ComposeResponse.parse({
       job_id,
       stage: "compose",
       started_at: started,
@@ -79,7 +82,7 @@ app.post("/process", async (c) => {
       manifest_uri: toGsUri(manifest_object),
       manifest_url,
       ass_uri: toGsUri(ass_object),
-    };
+    });
     return c.json(resp);
   } catch (e) {
     log.error(job_id, "compose failed", e);

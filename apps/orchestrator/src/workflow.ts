@@ -6,14 +6,13 @@
  */
 
 import { serve } from "@upstash/workflow/hono";
-import type {
+import {
   AlignResponse,
   ComposeResponse,
-  GcsUri,
   SeparateResponse,
-  StageJobId,
   TranscribeResponse,
 } from "@annemusic/contracts";
+import type { GcsUri, StageJobId } from "@annemusic/contracts";
 import { createLogger } from "@annemusic/shared-ts/logger";
 import { required } from "@annemusic/shared-ts/env";
 
@@ -52,6 +51,31 @@ const stageHeaders = (): Record<string, string> => {
   return h;
 };
 
+// Runtime contract check on every stage response. A producer bug fails the
+// step here, by name, instead of flowing downstream as a blind `as` cast and
+// exploding one stage later (or reaching the browser malformed). Throwing
+// lets QStash retry and, on exhaustion, the failureFunction marks the job.
+type ZodLikeSchema<T> = {
+  safeParse: (v: unknown) =>
+    | { success: true; data: T }
+    | { success: false; error: { issues: Array<{ path: PropertyKey[]; message: string }> } };
+};
+function parseStageBody<T>(
+  schema: ZodLikeSchema<T>,
+  stage: string,
+  job_id: string,
+  body: unknown,
+): T {
+  const r = schema.safeParse(body);
+  if (!r.success) {
+    log.error(job_id, `${stage} response contract violation`, new Error("contract"), {
+      issues: r.error.issues.slice(0, 5).map((i) => `${i.path.join(".")}: ${i.message}`),
+    });
+    throw new Error(`${stage} response violated contract`);
+  }
+  return r.data;
+}
+
 export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
   const p = context.requestPayload;
   const { job_id } = p;
@@ -86,7 +110,7 @@ export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
     });
     throw new Error(`separate returned ${separate.status}`);
   }
-  const sep = separate.body as SeparateResponse;
+  const sep = parseStageBody(SeparateResponse, "separate", job_id, separate.body);
 
   const transcribe = await context.call<TranscribeResponse>("transcribe", {
     url: `${u.transcribe}/process`,
@@ -107,7 +131,7 @@ export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
     log.error(job_id, "transcribe failed", new Error(`status=${transcribe.status}`));
     throw new Error(`transcribe returned ${transcribe.status}`);
   }
-  const tr = transcribe.body as TranscribeResponse;
+  const tr = parseStageBody(TranscribeResponse, "transcribe", job_id, transcribe.body);
 
   const align = await context.call<AlignResponse>("align", {
     url: `${u.align}/process`,
@@ -128,7 +152,7 @@ export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
     log.error(job_id, "align failed", new Error(`status=${align.status}`));
     throw new Error(`align returned ${align.status}`);
   }
-  const al = align.body as AlignResponse;
+  const al = parseStageBody(AlignResponse, "align", job_id, align.body);
 
   const compose = await context.call<ComposeResponse>("compose", {
     url: `${u.compose}/process`,
@@ -150,7 +174,7 @@ export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
     log.error(job_id, "compose failed", new Error(`status=${compose.status}`));
     throw new Error(`compose returned ${compose.status}`);
   }
-  const co = compose.body as ComposeResponse;
+  const co = parseStageBody(ComposeResponse, "compose", job_id, compose.body);
 
   // Pipe the manifest URL back to Redis so the API can serve it.
   await context.run("persist-manifest", async () => {

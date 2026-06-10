@@ -48,11 +48,25 @@ async def process(request: Request) -> dict:
 
     job_id = body["job_id"]
     try:
-        return pipeline.run(job_id, body["source_uri"], body.get("model"))
+        result = pipeline.run(job_id, body["source_uri"], body.get("model"))
     except Exception as e:
         log.error(job_id, "pipeline failed", e)
         flush_logs()
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+    return _validated(result)
+
+
+def _validated(result: dict) -> dict:
+    """Producer-side contract check: a malformed response fails HERE with a
+    named violation instead of one stage downstream (or never)."""
+    try:
+        validate(result, "separate_response")
+    except ValidationError as e:
+        log.error(result.get("job_id"), "response contract violation", e,
+                  {"path": list(e.absolute_path)})
+        flush_logs()
+        raise HTTPException(status_code=500, detail=f"response contract violation: {e.message}")
+    return result
 
 
 def main() -> None:  # python -m separate

@@ -19,6 +19,23 @@ const toSnake = (name) =>
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
     .toLowerCase();
 
+// Tolerant reader: zod-to-json-schema emits `additionalProperties: false`
+// for every plain z.object, but the Zod consumers (compose, orchestrator)
+// STRIP unknown keys rather than reject them — so the same wire payload
+// was valid in TS and a 400 in Python, and adding even an optional field
+// forced a stages-before-orchestrator lockstep deploy. Producers may add
+// fields freely; consumers ignore what they don't know.
+const stripAdditionalProperties = (node) => {
+  if (Array.isArray(node)) {
+    node.forEach(stripAdditionalProperties);
+    return;
+  }
+  if (node && typeof node === "object") {
+    if (node.additionalProperties === false) delete node.additionalProperties;
+    Object.values(node).forEach(stripAdditionalProperties);
+  }
+};
+
 const index = {};
 let wrote = 0;
 for (const [name, value] of Object.entries(schemas)) {
@@ -27,6 +44,7 @@ for (const [name, value] of Object.entries(schemas)) {
   if (!("_def" in value) || typeof value.parse !== "function") continue;
   const filename = `${toSnake(name)}.json`;
   const json = zodToJsonSchema(value, { name, $refStrategy: "none" });
+  stripAdditionalProperties(json);
   writeFileSync(resolve(outDir, filename), JSON.stringify(json, null, 2) + "\n");
   index[name] = `./${filename}`;
   wrote++;
@@ -35,4 +53,15 @@ writeFileSync(
   resolve(outDir, "index.json"),
   JSON.stringify(index, null, 2) + "\n",
 );
-console.log(`contracts: wrote ${wrote} schemas → ${outDir}`);
+
+// Routing-table snapshot for the shared-py parity test: flows.py mirrors
+// flows.ts by hand, and this artifact is how a drift becomes a test failure
+// instead of a silently different backend in one language's pipeline.
+const flows = {
+  qwen_align_langs: [...schemas.QWEN_ALIGN_LANGS].sort(),
+  qwen_transcribe_langs: [...schemas.QWEN_TRANSCRIBE_LANGS].sort(),
+  default_flow: schemas.DEFAULT_FLOW,
+};
+writeFileSync(resolve(outDir, "flows.json"), JSON.stringify(flows, null, 2) + "\n");
+
+console.log(`contracts: wrote ${wrote} schemas + flows.json → ${outDir}`);

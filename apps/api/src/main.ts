@@ -2,6 +2,7 @@ import { serve as nodeServe } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { Client } from "@upstash/workflow";
+import { TranscribeRequest } from "@annemusic/contracts";
 import { createLogger } from "@annemusic/shared-ts/logger";
 import { required, optional, optionalNumber, isLocal } from "@annemusic/shared-ts/env";
 import {
@@ -172,6 +173,21 @@ app.post("/uploads", async (c) => {
     return c.json({
       detail: `unsupported content_type; accept one of: ${Object.keys(EXT_BY_CONTENT_TYPE).join(", ")}`,
     }, 400);
+  }
+  // Contract checks at ingress, where they're cheap. A bad `language`
+  // ("turkish") used to ride the workflow through the GPU-priced separate
+  // stage and only 400 inside transcribe, failing the job after the bulk
+  // of the cost was paid.
+  if (language !== undefined && !TranscribeRequest.shape.language.safeParse(language).success) {
+    return c.json({ detail: "language must be a 2-3 letter ISO code (e.g. tr, en)" }, 400);
+  }
+  if (known_lyrics !== undefined && (typeof known_lyrics !== "string" || known_lyrics.length > 20_000)) {
+    return c.json({ detail: "known_lyrics must be a string under 20000 chars" }, 400);
+  }
+  for (const [name, v] of [["title", title], ["artist", artist]] as const) {
+    if (v !== undefined && (typeof v !== "string" || v.length > 200)) {
+      return c.json({ detail: `${name} must be a string under 200 chars` }, 400);
+    }
   }
 
   // 1. already done → skip everything.

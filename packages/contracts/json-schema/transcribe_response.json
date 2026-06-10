@@ -52,8 +52,7 @@
               "text",
               "start",
               "end"
-            ],
-            "additionalProperties": false
+            ]
           }
         },
         "vocal_activity": {
@@ -81,8 +80,7 @@
               "start",
               "end",
               "kind"
-            ],
-            "additionalProperties": false
+            ]
           }
         },
         "source": {
@@ -107,8 +105,7 @@
         "vocal_activity",
         "source",
         "model_used"
-      ],
-      "additionalProperties": false
+      ]
     }
   },
   "$schema": "http://json-schema.org/draft-07/schema#"

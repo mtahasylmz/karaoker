@@ -142,4 +142,6 @@ for observing intermediate artifacts between stages. Requests go through
 
 ## Contracts are the spine
 
-Every stage validates both request and response against its schema. If you're about to invent a new field, add it to `packages/contracts/src/<stage>.ts` first, then `pnpm contracts:build` to regenerate the JSON Schema the Python stages consume. Never hand-edit `packages/contracts/json-schema/*.json`.
+Every stage validates both request and response against its schema (Python via `shared.schemas.validate`, TS via Zod; the orchestrator re-parses every stage response). If you're about to invent a new field, add it to `packages/contracts/src/<stage>.ts` first, then `pnpm contracts:build` to regenerate the JSON Schema the Python stages consume. Never hand-edit `packages/contracts/json-schema/*.json`.
+
+**Tolerant reader:** generated schemas deliberately drop `additionalProperties: false` — producers may ship unknown fields freely and consumers ignore them, so adding an optional field never forces a lockstep redeploy. The TS↔Python routing mirror (`flows.ts` / `flows.py`) is guarded by `packages/shared-py/tests/test_flows_parity.py` against the `flows.json` snapshot that `contracts:build` emits.
