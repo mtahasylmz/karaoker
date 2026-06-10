@@ -64,8 +64,17 @@ export async function claimVideo(sha256: string, job_id: string): Promise<boolea
   const won = (await redis().hsetnx(key, "status", "queued")) === 1;
   if (won) {
     await redis().hset(key, { job_id, created_at: now() });
+    return true;
   }
-  return won;
+  // A failed run doesn't block the sha forever: flip failed → queued for the
+  // new job. Anything else (queued/processing/done) keeps the existing claim.
+  const status = (await redis().hget(key, "status")) as string | null;
+  if (status === "failed") {
+    await redis().hset(key, { status: "queued", job_id, created_at: now() });
+    await redis().hdel(key, "error");
+    return true;
+  }
+  return false;
 }
 
 // ---------- jobs ----------

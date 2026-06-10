@@ -162,4 +162,31 @@ export const annemusicWorkflow = serve<WorkflowPayload>(async (context) => {
   });
 
   log.info(job_id, "workflow completed", { manifest_url: co.manifest_url });
+}, {
+  // Runs when QStash exhausts retries on any step. Without this, a stage
+  // failure leaves job:<id> "queued" forever and — because POST /jobs treats
+  // any non-failed video status as in-flight — permanently blocks the sha
+  // from re-processing.
+  failureFunction: async ({ context, failStatus, failResponse }) => {
+    const p = context.requestPayload as WorkflowPayload | undefined;
+    const error = `pipeline failed (status ${failStatus}): ${failResponse}`.slice(0, 500);
+    log.error(p?.job_id, "workflow failed", new Error(failResponse), {
+      failStatus,
+      sha: p?.sha256,
+    });
+    if (!p?.job_id) return;
+    const { redis } = await import("@annemusic/shared-ts/redis");
+    await redis().hset(`job:${p.job_id}`, {
+      status: "failed",
+      error,
+      updated_at: String(Date.now()),
+    });
+    if (p.sha256) {
+      await redis().hset(`video:${p.sha256}`, {
+        status: "failed",
+        error,
+        job_id: p.job_id,
+      });
+    }
+  },
 });
