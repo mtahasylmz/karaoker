@@ -9,8 +9,17 @@ dependencies = [
   "uvicorn[standard]>=0.32",
   "whisperx==3.1.6",
   "faster-whisper==1.0.3",
-  "torch==2.2.2",
-  "torchaudio==2.2.2",
+  # Floor is torch>=2.6: transformers>=4.57 (pulled in by qwen-asr's ceiling)
+  # enforces CVE-2025-32434, which gates torch.load unless the weights are
+  # safetensors. Any wav2vec2 checkpoint that publishes only pytorch_model.bin
+  # (e.g. Turkish mpoyraz/wav2vec2-xls-r-300m-cv7-turkish) fails to load with
+  # torch<2.6.
+  # Ceiling is <2.9: torchaudio 2.9 removed the deprecated set_audio_backend()
+  # that pyannote.audio (via whisperx 3.1.6) still calls at import time.
+  # qwen-asr[vllm]'s torchaudio==2.9.1 is installed in a second pip step on
+  # the Cloud Run GPU image, not in this workspace.
+  "torch>=2.6,<2.9",
+  "torchaudio>=2.6,<2.9",
   "numpy<2",
   "jsonschema>=4.23",
   "certifi>=2024",
@@ -18,13 +27,12 @@ dependencies = [
 ]
 
 # Qwen3-ForcedAligner (Apache-2.0) is not listed here as an optional extra
-# because `qwen-asr[vllm]` pins torchaudio==2.9.1 which conflicts with the
-# whisperx==3.1.6 / torch==2.2.2 pair the CPU path relies on. The GPU Cloud
-# Run image installs it in a second pip step after the base deps:
-#     RUN pip install --no-deps "qwen-asr[vllm]>=0.0.6" && \
-#         pip install "qwen-asr[vllm]>=0.0.6"
-# The import in src/align/pipeline.py is guarded, so CPU-only hosts keep
-# running the whisperx path without needing qwen-asr present.
+# because `qwen-asr` pins torchaudio==2.9.1 which conflicts with the
+# torch>=2.6 / torchaudio>=2.6 floor this workspace uses. The GPU Cloud
+# Run image (stages/align/Dockerfile) installs `qwen-asr --no-deps` plus
+# its import-time deps explicitly, then asserts both backends import at
+# build time. The import in src/align/pipeline.py is guarded, so CPU-only
+# hosts keep running the whisperx path without needing qwen-asr present.
 
 [build-system]
 requires = ["hatchling"]

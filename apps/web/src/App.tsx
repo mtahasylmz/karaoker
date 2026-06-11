@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Register } from "./components/Register.tsx";
 import { Upload } from "./components/Upload.tsx";
 import { JobView } from "./components/JobView.tsx";
-import { api } from "./api.ts";
+import { api, userToken } from "./api.ts";
 
 const USER_KEY = "annemusic.username";
 
@@ -37,6 +37,7 @@ export function App() {
 
   function logout() {
     localStorage.removeItem(USER_KEY);
+    userToken.clear();
     setUsername(null);
     setActiveJobId(null);
   }

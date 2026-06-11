@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+    branches: [main, hop-table]
+  pull_request:
+
+jobs:
+  ts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version comes from package.json packageManager
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: build workspace packages
+        # dist/ is gitignored; shared-ts and contracts resolve via dist, so
+        # everything downstream (tsc, tests, the regen check) needs this.
+        run: pnpm -r --if-present run build
+      - name: contracts regen check
+        # json-schema/ is generated from src/ — a diff here means someone
+        # hand-edited the JSON or forgot to run `pnpm contracts:build`.
+        run: |
+          pnpm contracts:build
+          git diff --exit-code packages/contracts/json-schema
+      - name: typecheck
+        run: |
+          pnpm --filter @annemusic/api exec tsc --noEmit
+          pnpm --filter @annemusic/orchestrator exec tsc --noEmit
+          pnpm --filter @annemusic/web exec tsc --noEmit
+          pnpm --filter @annemusic/stage-compose exec tsc --noEmit
+      - name: compose tests
+        run: pnpm --filter @annemusic/stage-compose test
+
+  py:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: audio deps for record-mix tests
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg libsndfile1
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      # The uv workspace (transcribe / align / record-mix / shared-py) pulls
+      # torch — heavy on a cold cache, fine after. stages/separate keeps its
+      # own lockfile and has no tests, so it isn't synced here.
+      - run: uv sync --all-packages
+      - name: pytest (shared-py parity + stage suites)
+        # One invocation per suite: the stages' tests/ dirs share module
+        # names, which collides in a single pytest rootdir.
+        run: |
+          uv run python -m pytest packages/shared-py/tests -q
+          uv run python -m pytest stages/transcribe/tests -q
+          uv run python -m pytest stages/align/tests -q
+          uv run python -m pytest stages/record-mix/tests -q

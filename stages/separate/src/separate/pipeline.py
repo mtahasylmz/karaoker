@@ -103,10 +103,16 @@ def _separate_audio_separator(
     from audio_separator.separator import Separator
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    # audio-separator reads AUDIO_SEPARATOR_MODEL_DIR as a strict path — it
+    # does not mkdir on first download. Create it here so the image-fs cache
+    # or /tmp works uniformly across Cloud Run cold starts and local dev.
+    model_dir = os.environ.get("AUDIO_SEPARATOR_MODEL_DIR") or "/tmp/audio-separator-models"
+    Path(model_dir).mkdir(parents=True, exist_ok=True)
     sep = Separator(
         output_dir=str(out_dir),
         output_format="WAV",
         log_level=30,
+        model_file_dir=model_dir,
     )
     log.info(job_id, "audio-separator loading", {"model": model, "file": AS_MODEL_FILES[model]})
     sep.load_model(AS_MODEL_FILES[model])

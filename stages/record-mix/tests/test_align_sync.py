@@ -53,3 +53,18 @@ def test_correlated_snr_dominates_uncorrelated():
         f"correlated SNR {snr_correlated:.1f} dB should dominate "
         f"uncorrelated {snr_uncorrelated:.1f} dB"
     )
+
+
+def test_uncorrelated_signals_fail_the_accept_gate():
+    """The whole point of the gate: when the recording genuinely doesn't match
+    the reference (room noise, wrong section, instrumental-only take), the
+    stage must SKIP alignment rather than confidently apply a random shift.
+    Peak-to-secondary for uncorrelated noise sits near 0 dB."""
+    rng = np.random.default_rng(11)
+    for trial in range(3):
+        a = rng.standard_normal(FS * 4).astype(np.float32)
+        b = rng.standard_normal(FS * 4).astype(np.float32)
+        _, snr_db = align_sync.gcc_phat(a, b)
+        assert snr_db < align_sync.SNR_ACCEPT_DB, (
+            f"trial {trial}: uncorrelated audio passed the gate at {snr_db:.1f} dB"
+        )

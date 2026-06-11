@@ -1,9 +1,21 @@
 const BASE = "/api";
+const TOKEN_KEY = "annemusic.token";
+
+export const userToken = {
+  get: () => localStorage.getItem(TOKEN_KEY),
+  set: (t: string) => localStorage.setItem(TOKEN_KEY, t),
+  clear: () => localStorage.removeItem(TOKEN_KEY),
+};
 
 async function req(path: string, opts: RequestInit = {}) {
+  const token = userToken.get();
   const res = await fetch(BASE + path, {
     ...opts,
-    headers: { "content-type": "application/json", ...(opts.headers ?? {}) },
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { "x-user-token": token } : {}),
+      ...(opts.headers ?? {}),
+    },
   });
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
@@ -13,7 +25,12 @@ async function req(path: string, opts: RequestInit = {}) {
 
 export const api = {
   ping: () => req("/ping"),
-  registerUser: (username: string) => req("/users", { method: "POST", body: JSON.stringify({ username }) }),
+  registerUser: async (username: string) => {
+    const data = await req("/users", { method: "POST", body: JSON.stringify({ username }) });
+    // The registration token is shown exactly once — persist immediately.
+    if (typeof data?.token === "string") userToken.set(data.token);
+    return data;
+  },
   getUser: (username: string) => req(`/users/${encodeURIComponent(username)}`),
   requestUpload: (body: {
     username: string;

@@ -34,8 +34,7 @@
               "text",
               "start",
               "end"
-            ],
-            "additionalProperties": false
+            ]
           }
         },
         "video_uri": {
@@ -114,8 +113,7 @@
               "type": "number",
               "minimum": 0
             }
-          },
-          "additionalProperties": false
+          }
         },
         "vocal_activity": {
           "type": "array",
@@ -142,8 +140,7 @@
               "start",
               "end",
               "kind"
-            ],
-            "additionalProperties": false
+            ]
           }
         }
       },
@@ -153,8 +150,7 @@
         "video_uri",
         "instrumental_uri",
         "vocal_activity"
-      ],
-      "additionalProperties": false
+      ]
     }
   },
   "$schema": "http://json-schema.org/draft-07/schema#"

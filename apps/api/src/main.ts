@@ -2,9 +2,17 @@ import { serve as nodeServe } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { Client } from "@upstash/workflow";
+import { TranscribeRequest } from "@annemusic/contracts";
 import { createLogger } from "@annemusic/shared-ts/logger";
 import { required, optional, optionalNumber, isLocal } from "@annemusic/shared-ts/env";
-import { signedPutUrl, objectExists, publicUrl } from "@annemusic/shared-ts/gcs";
+import {
+  signedPutUrl,
+  signedGetUrl,
+  objectExists,
+  publicUrl,
+  objectPathFromGsUri,
+} from "@annemusic/shared-ts/gcs";
+import { proxyStage, type StageName } from "./stage-proxy.js";
 import {
   appendUserJob,
   claimVideo,
@@ -17,9 +25,24 @@ import {
   recordUpload,
   reserveUsername,
   userExists,
+  userTokenMatches,
   validSha256,
   validUsername,
 } from "./state.js";
+
+// Per-user bearer auth: POST /users returns a token once; user-scoped
+// routes require it back in x-user-token. A self-asserted username used
+// to be enough to read anyone's jobs and trigger paid GPU runs as them.
+async function userAuthError(
+  c: { req: { header: (h: string) => string | undefined }; json: (b: unknown, s: number) => Response },
+  username: string,
+): Promise<Response | null> {
+  if (!(await userExists(username))) return c.json({ detail: "unknown username" }, 404);
+  if (!(await userTokenMatches(username, c.req.header("x-user-token")))) {
+    return c.json({ detail: "missing or invalid user token" }, 401);
+  }
+  return null;
+}
 
 const log = createLogger("api");
 
@@ -38,7 +61,7 @@ app.use(
   cors({
     origin: optional("CORS_ORIGINS", "*") === "*" ? "*" : optional("CORS_ORIGINS").split(","),
     allowMethods: ["GET", "POST", "OPTIONS"],
-    allowHeaders: ["content-type"],
+    allowHeaders: ["content-type", "x-manual-key", "x-user-token"],
   }),
 );
 
@@ -55,10 +78,12 @@ app.post("/users", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const username = (body?.username ?? "").trim();
   if (!validUsername(username)) return c.json({ detail: "invalid username" }, 400);
-  const ok = await reserveUsername(username);
-  if (!ok) return c.json({ detail: "username taken" }, 409);
+  const token = await reserveUsername(username);
+  if (!token) return c.json({ detail: "username taken" }, 409);
   log.info(undefined, "user registered", { username });
-  return c.json({ username }, 201);
+  // The token is shown exactly once; the client persists it and sends it
+  // back as x-user-token on user-scoped routes.
+  return c.json({ username, token }, 201);
 });
 
 app.get("/users/:username", async (c) => {
@@ -139,7 +164,8 @@ app.post("/dev/trigger", async (c) => {
 
 app.get("/users/:username/jobs", async (c) => {
   const u = c.req.param("username");
-  if (!(await userExists(u))) return c.json({ detail: "unknown username" }, 404);
+  const denied = await userAuthError(c, u);
+  if (denied) return denied;
   const limit = Number(c.req.query("limit") ?? 20);
   const ids = await listUserJobIds(u, limit);
   const jobs = [];
@@ -155,7 +181,8 @@ app.get("/users/:username/jobs", async (c) => {
 app.post("/uploads", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { username, sha256, size, content_type, known_lyrics, title, artist, language } = body;
-  if (!(await userExists(username))) return c.json({ detail: "unknown username" }, 404);
+  const denied = await userAuthError(c, username);
+  if (denied) return denied;
   if (!validSha256(sha256)) return c.json({ detail: "sha256 must be 64 hex chars" }, 400);
   if (typeof size !== "number" || size < 1 || size > MAX_UPLOAD_BYTES) {
     return c.json({ detail: `size must be 1..${MAX_UPLOAD_BYTES}` }, 400);
@@ -165,6 +192,21 @@ app.post("/uploads", async (c) => {
     return c.json({
       detail: `unsupported content_type; accept one of: ${Object.keys(EXT_BY_CONTENT_TYPE).join(", ")}`,
     }, 400);
+  }
+  // Contract checks at ingress, where they're cheap. A bad `language`
+  // ("turkish") used to ride the workflow through the GPU-priced separate
+  // stage and only 400 inside transcribe, failing the job after the bulk
+  // of the cost was paid.
+  if (language !== undefined && !TranscribeRequest.shape.language.safeParse(language).success) {
+    return c.json({ detail: "language must be a 2-3 letter ISO code (e.g. tr, en)" }, 400);
+  }
+  if (known_lyrics !== undefined && (typeof known_lyrics !== "string" || known_lyrics.length > 20_000)) {
+    return c.json({ detail: "known_lyrics must be a string under 20000 chars" }, 400);
+  }
+  for (const [name, v] of [["title", title], ["artist", artist]] as const) {
+    if (v !== undefined && (typeof v !== "string" || v.length > 200)) {
+      return c.json({ detail: `${name} must be a string under 200 chars` }, 400);
+    }
   }
 
   // 1. already done → skip everything.
@@ -179,6 +221,8 @@ app.post("/uploads", async (c) => {
     });
   }
 
+  const bucket = required("GCS_BUCKET");
+
   // 2. upload record exists AND object present → skip PUT.
   const existing = await getUpload(sha256);
   if (existing?.object_path && (await objectExists(existing.object_path))) {
@@ -187,6 +231,7 @@ app.post("/uploads", async (c) => {
       status: "uploaded",
       sha256,
       object_path: existing.object_path,
+      gs_uri: `gs://${bucket}/${existing.object_path}`,
       need_upload: false,
     });
   }
@@ -212,6 +257,7 @@ app.post("/uploads", async (c) => {
     status: "pending_upload",
     sha256,
     object_path,
+    gs_uri: `gs://${bucket}/${object_path}`,
     need_upload: true,
     signed_put_url,
     expires_in: 900,
@@ -230,7 +276,8 @@ function newJobId(): string {
 app.post("/jobs", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { username, sha256 } = body;
-  if (!(await userExists(username))) return c.json({ detail: "unknown username" }, 404);
+  const denied = await userAuthError(c, username);
+  if (denied) return denied;
   if (!validSha256(sha256)) return c.json({ detail: "sha256 must be 64 hex chars" }, 400);
 
   const upload = await getUpload(sha256);
@@ -305,10 +352,119 @@ app.get("/jobs/:job_id", async (c) => {
   const id = c.req.param("job_id");
   const job = await getJob(id);
   if (!job) return c.json({ detail: "unknown job" }, 404);
+  const denied = await userAuthError(c, job.username);
+  if (denied) return denied;
   // Recent logs for UI (all stages, sorted by ts).
   const sinceMs = Number(c.req.query("since_ms") ?? job.created_at) || 0;
   const logs = await logsForJob(id, sinceMs);
   return c.json({ ...job, logs });
+});
+
+// ---------- manual test harness (/manual) ----------
+//
+// The /manual browser UI calls a single stage at a time so a human can
+// observe each intermediate artifact before advancing. Routes here proxy
+// to the stage endpoints with OIDC auth (prod) or pass through (local dev),
+// mint signed GET URLs for GCS artifacts, and — in dev — stream local files
+// so browser audio players can read them.
+
+const MANUAL_STAGES: readonly StageName[] = [
+  "separate", "transcribe", "align", "compose", "record-mix",
+] as const;
+
+// The /manual surface can drive arbitrarily many real (GPU-priced) stage
+// runs and mint signed GET URLs, so it is closed by default outside local
+// dev: set MANUAL_TOKEN to enable it in prod, and the browser must echo it
+// in x-manual-key (the /manual UI prompts once and stores it).
+app.use("/manual/*", async (c, next) => {
+  const token = optional("MANUAL_TOKEN", "");
+  if (token) {
+    if ((c.req.header("x-manual-key") ?? "") !== token) {
+      return c.json({ detail: "manual key required" }, 401);
+    }
+  } else if (!isLocal()) {
+    return c.json({ detail: "manual harness disabled (set MANUAL_TOKEN to enable)" }, 403);
+  }
+  await next();
+});
+
+app.post("/manual/job-id", (c) => c.json({ job_id: newJobId() }));
+
+app.post("/manual/signed-get", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const uri = typeof body?.uri === "string" ? body.uri : "";
+  if (!uri) return c.json({ detail: "uri required" }, 400);
+  let path: string;
+  try {
+    path = objectPathFromGsUri(uri);
+  } catch (e) {
+    return c.json({ detail: `invalid uri: ${(e as Error).message}` }, 400);
+  }
+  if (process.env.DEV_FS_ROOT) {
+    // Dev mode: the browser can't open file:// via fetch, so point it at the
+    // streaming endpoint below. Dev takes precedence over signing so the same
+    // harness works without real GCS credentials.
+    return c.json({ url: `/api/manual/file?path=${encodeURIComponent(path)}` });
+  }
+  // GCS_URL_MODE=public → hand back the stable public URL (infra/setup.sh
+  // grants allUsers:objectViewer on the annemusic bucket, so this works
+  // without any credentials on the browser side and without the api having
+  // to sign).
+  if (optional("GCS_URL_MODE", "public") !== "signed") {
+    return c.json({ url: publicUrl(path) });
+  }
+  const url = await signedGetUrl(path, 900);
+  return c.json({ url });
+});
+
+app.get("/manual/file", async (c) => {
+  // Dev-mode only: stream files from DEV_FS_ROOT. Restrict to paths under
+  // uploads/ and stages/ so nothing else on disk is exposed.
+  const root = process.env.DEV_FS_ROOT;
+  if (!root) return c.json({ detail: "dev only (DEV_FS_ROOT not set)" }, 403);
+  const raw = c.req.query("path") ?? "";
+  if (!raw.startsWith("uploads/") && !raw.startsWith("stages/")) {
+    return c.json({ detail: "path must be under uploads/ or stages/" }, 403);
+  }
+  if (raw.includes("..")) return c.json({ detail: "no .." }, 403);
+  const fs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const abs = nodePath.join(root, raw);
+  if (!fs.existsSync(abs)) return c.json({ detail: "not found" }, 404);
+  const ext = nodePath.extname(abs).toLowerCase();
+  const mime =
+    ext === ".wav" ? "audio/wav"
+    : ext === ".mp3" ? "audio/mpeg"
+    : ext === ".mp4" ? "video/mp4"
+    : ext === ".webm" ? "video/webm"
+    : ext === ".ass" ? "text/plain; charset=utf-8"
+    : ext === ".json" ? "application/json"
+    : "application/octet-stream";
+  const stream = fs.createReadStream(abs);
+  const web = new ReadableStream({
+    start(ctrl) {
+      stream.on("data", (chunk) => ctrl.enqueue(chunk));
+      stream.on("end", () => ctrl.close());
+      stream.on("error", (err) => ctrl.error(err));
+    },
+    cancel() { stream.destroy(); },
+  });
+  return new Response(web, { headers: { "content-type": mime } });
+});
+
+app.post("/manual/stages/:stage/process", async (c) => {
+  const stage = c.req.param("stage") as StageName;
+  if (!MANUAL_STAGES.includes(stage)) {
+    return c.json({ detail: `unknown stage: ${stage}` }, 404);
+  }
+  const body = await c.req.json().catch(() => ({}));
+  try {
+    const { status, body: out } = await proxyStage(stage, body);
+    return c.json(out as Record<string, unknown>, status as 200);
+  } catch (e) {
+    log.error(undefined, "stage proxy failed", e, { stage });
+    return c.json({ detail: `${(e as Error).name}: ${(e as Error).message}` }, 502);
+  }
 });
 
 const port = optionalNumber("PORT", 8082);

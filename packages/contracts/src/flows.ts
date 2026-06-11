@@ -20,7 +20,9 @@ export type Flow = {
 
 // Qwen3-ForcedAligner-0.6B language coverage (the 11 langs Qwen ships an
 // aligner for). Anything outside this set routes to whisperx/wav2vec2.
-const QWEN_ALIGN_LANGS = new Set([
+// Exported so contracts:build can emit flows.json, which the shared-py
+// parity test compares against the hand-mirrored flows.py tables.
+export const QWEN_ALIGN_LANGS = new Set([
   "en", "zh", "yue", "fr", "de", "it", "ja", "ko", "pt", "ru", "es",
 ]);
 
@@ -28,7 +30,7 @@ const QWEN_ALIGN_LANGS = new Set([
 // Qwen3-ASR covers 30 languages and outperforms Whisper on singing on its
 // published benchmarks. Carve out exceptions below when bench evidence
 // suggests otherwise.
-const QWEN_TRANSCRIBE_LANGS = new Set([
+export const QWEN_TRANSCRIBE_LANGS = new Set([
   "en", "zh", "yue", "ar", "de", "fr", "es", "pt", "id", "it", "ko", "ru",
   "th", "vi", "ja", "tr", "hi", "ms", "nl", "sv", "da", "fi", "pl", "cs",
   "fil", "fa", "el", "hu", "mk", "ro",

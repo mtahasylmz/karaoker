@@ -29,9 +29,15 @@ importers:
       '@upstash/workflow':
         specifier: ^0.2.14
         version: 0.2.23(react@18.3.1)
+      google-auth-library:
+        specifier: ^9.15.0
+        version: 9.15.1
       hono:
         specifier: ^4.6.14
         version: 4.12.14
+      undici:
+        specifier: ^8.1.0
+        version: 8.1.0
     devDependencies:
       '@types/node':
         specifier: ^20.17.0
@@ -1406,6 +1412,10 @@ packages:
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
+  undici@8.1.0:
+    resolution: {integrity: sha512-E9MkTS4xXLnRPYqxH2e6Hr2/49e7WFDKczKcCaFH4VaZs2iNvHMqeIkyUAD9vM8kujy9TjVrRlQ5KkdEJxB2pw==}
+    engines: {node: '>=22.19.0'}
+
   update-browserslist-db@1.2.3:
     resolution: {integrity: sha512-Js0m9cx+qOgDxo0eMiFGEueWztz+d4+M3rGlmKPT+T4IS/jP4ylw3Nwpu6cpTTP8R1MAC1kF4VbdLt3ARf209w==}
     hasBin: true
@@ -2623,6 +2633,8 @@ snapshots:
   uncrypto@0.1.3: {}
 
   undici-types@6.21.0: {}
+
+  undici@8.1.0: {}
 
   update-browserslist-db@1.2.3(browserslist@4.28.2):
     dependencies:
