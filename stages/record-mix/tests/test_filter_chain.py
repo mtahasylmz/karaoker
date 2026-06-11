@@ -39,7 +39,9 @@ def test_reverb_chain_weights_dry_wet():
         ir_input="2:a", reverb_wet=0.25,
     )
     assert "[v_post_eq]asplit=2[v_dry][v_for_rev]" in out
-    assert "[v_for_rev][2:a]afir=irnorm=1[v_wet]" in out
+    # Bare afir on purpose: irnorm is ffmpeg>=7-only, gtype is <=6.x-only,
+    # and both default to a normalized IR (see reverb_chain).
+    assert "[v_for_rev][2:a]afir[v_wet]" in out
     assert "weights=0.750 0.250" in out
     assert out.endswith("[v_post_rev]")
 
