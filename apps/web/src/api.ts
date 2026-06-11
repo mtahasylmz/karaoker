@@ -46,8 +46,13 @@ export const api = {
     req("/jobs", { method: "POST", body: JSON.stringify({ username, sha256 }) }),
   getJob: (job_id: string) => req(`/jobs/${encodeURIComponent(job_id)}`),
   listUserJobs: (username: string) => req(`/users/${encodeURIComponent(username)}/jobs`),
-  devTrigger: (username: string, title?: string, artist?: string) =>
-    req("/dev/trigger", { method: "POST", body: JSON.stringify({ username, title, artist }) }),
+  devTrigger: async (username: string, title?: string, artist?: string) => {
+    const data = await req("/dev/trigger", { method: "POST", body: JSON.stringify({ username, title, artist }) });
+    // Dev route returns the auto-registered user's token; persist it so the
+    // token-gated job polling works for dev sessions too.
+    if (typeof data?.token === "string") userToken.set(data.token);
+    return data;
+  },
 };
 
 /** Stream-hash a file with SubtleCrypto (4 MB chunks). */

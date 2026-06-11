@@ -19,6 +19,7 @@ import {
   createJob,
   getJob,
   getUpload,
+  getUserToken,
   getVideo,
   listUserJobIds,
   logsForJob,
@@ -99,6 +100,9 @@ app.post("/dev/trigger", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const username = body.username ?? "dev";
   if (!(await userExists(username))) await reserveUsername(username);
+  // Dev-only: hand the token back so the caller can poll the token-gated
+  // job routes for the auto-registered user.
+  const token = await getUserToken(username);
 
   // If the caller didn't specify a sha256, look for the newest file in
   // $DEV_FS_ROOT/uploads/ and reuse its name (sha256.ext) so the staged
@@ -159,7 +163,7 @@ app.post("/dev/trigger", async (c) => {
     retries: 1,
   });
   log.info(job_id, "dev workflow triggered", { workflowRunId });
-  return c.json({ job_id, sha256, workflowRunId });
+  return c.json({ job_id, sha256, workflowRunId, token });
 });
 
 app.get("/users/:username/jobs", async (c) => {

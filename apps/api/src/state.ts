@@ -32,6 +32,14 @@ export async function userExists(username: string): Promise<boolean> {
   return (await redis().exists(`user:${username}`)) === 1;
 }
 
+// Dev-only escape hatch (used by the isLocal-gated /dev/trigger): the token
+// is normally shown once at registration, but the dev flow auto-registers
+// and needs it back to poll the token-gated job routes.
+export async function getUserToken(username: string): Promise<string | null> {
+  const v = await redis().get(`user:${username}`);
+  return typeof v === "string" && v.length >= 32 ? v : null;
+}
+
 export async function userTokenMatches(
   username: string,
   token: string | undefined,
