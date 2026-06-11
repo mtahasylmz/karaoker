@@ -40,7 +40,11 @@ COPY stages/record-mix/pyproject.toml ./stages/record-mix/pyproject.toml
 # json-schema/ is what shared.schemas.validate() loads at runtime.
 COPY packages/contracts/json-schema ./packages/contracts/json-schema
 
-RUN uv sync --package annemusic-stage-transcribe --frozen --no-dev
+# hf_transfer: HF_HUB_ENABLE_HF_TRANSFER=1 in the environment makes
+# huggingface_hub hard-fail when the package is missing (observed on
+# RunPod); also speeds the cold weight download when the GCS mirror is absent.
+RUN uv sync --package annemusic-stage-transcribe --frozen --no-dev \
+ && uv pip install hf_transfer
 
 # Qwen3-ASR weights (~3.5 GB) stay out of the image — too big to push per
 # rebuild. Cloud Run's writable filesystem is per-instance tmpfs (nothing
