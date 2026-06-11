@@ -45,9 +45,13 @@ def reverb_chain(
         raise ValueError("reverb_chain requires reverb_wet > 0; caller should skip this fragment")
     dry = max(0.0, 1.0 - reverb_wet)
     wet = reverb_wet
+    # Bare afir, no normalization option: the option NAME split with ffmpeg 7
+    # (gtype on <=6.x, irnorm on >=7.0 — each rejects the other's), but both
+    # families default to a normalized IR, which is all we wanted. Debian's
+    # apt ffmpeg (prod image, CI runner) is 5.x/6.x while dev Macs run 7.x.
     return (
         f"[{in_label}]asplit=2[v_dry][v_for_rev];"
-        f"[v_for_rev][{ir_input}]afir=irnorm=1[v_wet];"
+        f"[v_for_rev][{ir_input}]afir[v_wet];"
         f"[v_dry][v_wet]amix=inputs=2:weights={dry:.3f} {wet:.3f}"
         f"[{out_label}]"
     )
