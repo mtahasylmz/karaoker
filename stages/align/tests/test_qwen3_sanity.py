@@ -59,10 +59,28 @@ def test_decreasing_span_still_rejects(monkeypatch, tmp_path):
         ])
 
 
-def test_out_of_window_word_still_rejects(monkeypatch, tmp_path):
-    with pytest.raises(_Qwen3SanityError, match="outside chunk"):
+def test_word_starting_outside_window_is_dropped(monkeypatch, tmp_path):
+    # Observed live: a word stamped past the audio slice. Drop it, keep the rest.
+    words = _run(monkeypatch, tmp_path, [
+        _Item("hello", 0.50, 1.00),
+        _Item("ghost", 9.60, 9.90),  # +chunk_start(2.0) → starts at 11.6 > hi(10.05)
+        _Item("world", 5.00, 5.40),
+    ])
+    assert [w["text"] for w in words] == ["hello", "world"]
+
+
+def test_word_ending_past_window_is_clamped(monkeypatch, tmp_path):
+    words = _run(monkeypatch, tmp_path, [
+        _Item("hello", 0.50, 1.00),
+        _Item("tail", 7.50, 8.50),  # → [9.5, 10.5]; hi = 10.05
+    ])
+    assert words[1]["end"] == pytest.approx(10.05)
+
+
+def test_all_words_outside_rejects(monkeypatch, tmp_path):
+    with pytest.raises(_Qwen3SanityError, match="survived|systemic"):
         _run(monkeypatch, tmp_path, [
-            _Item("hello", 0.50, 9.50),  # +chunk_start(2.0) → end 11.5 > hi
+            _Item("ghost", 9.60, 9.90),
         ])
 
 
