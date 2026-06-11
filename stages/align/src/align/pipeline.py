@@ -392,8 +392,15 @@ def _align_qwen3(
             raise _Qwen3SanityError("qwen3 item missing fields")
         ws = float(w_s) + chunk_start
         we = float(w_e) + chunk_start
-        if not (ws < we):
-            raise _Qwen3SanityError(f"non-increasing word span {ws} >= {we}")
+        if we < ws:
+            raise _Qwen3SanityError(f"decreasing word span {ws} > {we}")
+        if we - ws < 0.02:
+            # Frame-quantized aligners legitimately emit zero/near-zero spans
+            # for short tokens ("a", "I", "'m") — observed live on an A40:
+            # one tied pair (5.93 >= 5.93) used to discard the whole chunk's
+            # alignment. Nudge to a nominal 20 ms instead; only genuinely
+            # decreasing spans (above) indicate garbage output.
+            we = min(ws + 0.02, hi)
         if ws < prev_start:
             raise _Qwen3SanityError(
                 f"word starts not monotonic: {ws} < prev {prev_start}"
