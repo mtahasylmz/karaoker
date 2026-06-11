@@ -32,6 +32,11 @@ _AUDIO_SR = 16000
 # Qwen3-ForcedAligner: per-call audio cap. Qwen's published limit is 5 min.
 _QWEN_MAX_SECONDS = 300.0
 
+# Per-word span cap for the qwen3 sanity checker. Generous on purpose:
+# this is singing, and held notes routinely run 5-10s (speech-derived
+# limits reject real lyrics). Longer spans are clamped, not rejected.
+_MAX_WORD_SPAN_S = 12.0
+
 # Cache loaded wav2vec2 models per language — loading takes seconds.
 _align_cache: dict[str, tuple] = {}
 
@@ -377,10 +382,19 @@ def _align_qwen3(
         raise _Qwen3SanityError("qwen3 returned no results")
     items = results[0]
 
-    # Rebase + post-hoc sanity check. Anything that fails triggers a per-chunk
-    # whisperx fallback in the caller — no trial-and-error exception handling.
+    # Rebase + post-hoc sanity check. The policy split (learned on real A40
+    # runs, where single-word anomalies used to discard whole chunks of
+    # otherwise-good alignment):
+    #   - REPAIR isolated, explainable anomalies: zero-length spans (frame
+    #     quantization ties) and over-long spans (this is singing — held
+    #     notes blow past any speech-derived cap; a live run rejected 284
+    #     good words over one 7s 'what').
+    #   - REJECT structural garbage: decreasing spans, non-monotonic starts,
+    #     words outside the chunk window, or repairs needed on >20% of words
+    #     (systemic, not isolated). Rejection falls back to whisperx.
     words: list[dict] = []
     prev_start = -1.0
+    repaired = 0
     # 50 ms slack on the window edges to tolerate Qwen's own rounding.
     lo = chunk_start - 0.05
     hi = chunk_end + 0.05
@@ -395,12 +409,8 @@ def _align_qwen3(
         if we < ws:
             raise _Qwen3SanityError(f"decreasing word span {ws} > {we}")
         if we - ws < 0.02:
-            # Frame-quantized aligners legitimately emit zero/near-zero spans
-            # for short tokens ("a", "I", "'m") — observed live on an A40:
-            # one tied pair (5.93 >= 5.93) used to discard the whole chunk's
-            # alignment. Nudge to a nominal 20 ms instead; only genuinely
-            # decreasing spans (above) indicate garbage output.
             we = min(ws + 0.02, hi)
+            repaired += 1
         if ws < prev_start:
             raise _Qwen3SanityError(
                 f"word starts not monotonic: {ws} < prev {prev_start}"
@@ -409,12 +419,15 @@ def _align_qwen3(
             raise _Qwen3SanityError(
                 f"word [{ws}, {we}] outside chunk [{lo}, {hi}]"
             )
-        if we - ws > 5.0:
-            raise _Qwen3SanityError(
-                f"word span exceeds 5s: {we - ws:.2f}s on {w_text!r}"
-            )
+        if we - ws > _MAX_WORD_SPAN_S:
+            we = ws + _MAX_WORD_SPAN_S
+            repaired += 1
         prev_start = ws
         words.append({"text": str(w_text), "start": ws, "end": we})
+    if words and repaired > max(2, len(words) // 5):
+        raise _Qwen3SanityError(
+            f"{repaired}/{len(words)} word spans needed repair — systemic"
+        )
     return words
 
 
