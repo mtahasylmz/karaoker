@@ -43,9 +43,13 @@ RUN uv sync --package annemusic-stage-align --frozen --no-dev
 # The final import is the contract — if either backend can't import, the
 # BUILD fails here instead of every prod job silently downgrading to
 # CPU wav2vec2 on a GPU instance (pipeline._QWEN3_IMPORT_OK guard).
+# hf_transfer rides along: HF_HUB_ENABLE_HF_TRANSFER=1 in the environment
+# (GPU-host images commonly set it) makes huggingface_hub HARD-FAIL when the
+# package is missing — observed on RunPod, where it silently downgraded the
+# qwen3 aligner to whisperx. Having it also speeds cold weight downloads.
 RUN uv pip install --no-deps 'qwen-asr>=0.0.6' \
  && uv pip install librosa 'nagisa==0.2.11' 'soynlp==0.0.493' \
-      qwen-omni-utils sox pytz 'accelerate==1.12.0' \
+      qwen-omni-utils sox pytz 'accelerate==1.12.0' hf_transfer \
  && /app/.venv/bin/python -c \
       "import whisperx; from qwen_asr import Qwen3ForcedAligner; print('align backends OK: whisperx + qwen3')"
 

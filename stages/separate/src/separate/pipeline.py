@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -143,8 +144,11 @@ def _separate_demucs(
 ) -> tuple[Path, Path]:
     """Demucs fallback path — subprocess to the packaged `demucs` CLI."""
     log.info(job_id, "demucs running", {"model": model})
+    # sys.executable, not bare "python": PATH's python is whatever the host
+    # has (Homebrew 3.13 locally, /usr/local/bin/python in the image) —
+    # demucs lives in THIS interpreter's venv.
     _run_cmd([
-        "python", "-m", "demucs",
+        sys.executable, "-m", "demucs",
         "--two-stems=vocals",
         "-n", model,
         "-o", str(out_dir),

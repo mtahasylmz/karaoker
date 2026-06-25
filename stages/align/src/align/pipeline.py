@@ -14,6 +14,7 @@ Only ``whisperx.load_align_model`` + ``whisperx.align``.
 
 from __future__ import annotations
 
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -31,6 +32,18 @@ _AUDIO_SR = 16000
 
 # Qwen3-ForcedAligner: per-call audio cap. Qwen's published limit is 5 min.
 _QWEN_MAX_SECONDS = 300.0
+
+# Soft packing target for qwen3 chunks. The 300 s figure is the model's
+# HARD cap, but quality collapses well before it: on an A40, a 285 s chunk
+# returned 57% degenerate word spans while the same audio in ~60-130 s
+# chunks aligned near-clean. Pack to this target; only the hard cap forces
+# accepting an unsplittable single segment.
+_QWEN_TARGET_SECONDS = float(os.environ.get("QWEN_CHUNK_TARGET_S", "120"))
+
+# Per-word span cap for the qwen3 sanity checker. Generous on purpose:
+# this is singing, and held notes routinely run 5-10s (speech-derived
+# limits reject real lyrics). Longer spans are clamped, not rejected.
+_MAX_WORD_SPAN_S = 12.0
 
 # Cache loaded wav2vec2 models per language — loading takes seconds.
 _align_cache: dict[str, tuple] = {}
@@ -144,16 +157,20 @@ def plan_chunks(
     segments: list[dict],
     vocal_activity: list[dict],
     max_seconds: float = _QWEN_MAX_SECONDS,
+    target_seconds: float | None = None,
 ) -> list[list[dict]]:
-    """Group segments into ≤max_seconds windows, preferring to split at
-    instrumental regions in ``vocal_activity``. Never splits a segment.
+    """Group segments into windows, preferring to split at instrumental
+    regions in ``vocal_activity``. Never splits a segment.
 
-    Qwen3-ForcedAligner has a hard 5-minute-per-call limit; whisperx is
-    chunk-friendly. Concatenating the returned chunks in order yields the
-    original ``segments`` list.
+    ``target_seconds`` is the soft packing size (defaults to max_seconds);
+    ``max_seconds`` is Qwen3-ForcedAligner's hard 5-minute-per-call limit,
+    only relevant when a single unsplittable segment exceeds the target.
+    whisperx is chunk-friendly either way. Concatenating the returned
+    chunks in order yields the original ``segments`` list.
     """
     if not segments:
         return []
+    target = min(target_seconds or max_seconds, max_seconds)
 
     instrumental = [
         (float(r["start"]), float(r["end"]))
@@ -171,7 +188,7 @@ def plan_chunks(
     fit_upto = 1
     while (
         fit_upto < len(segments)
-        and float(segments[fit_upto]["end"]) - start0 <= max_seconds
+        and float(segments[fit_upto]["end"]) - start0 <= target
     ):
         fit_upto += 1
 
@@ -202,7 +219,7 @@ def plan_chunks(
             "chunk exceeds limit; single segment kept whole",
             {"span": span, "limit": max_seconds},
         )
-    return [first] + plan_chunks(rest, vocal_activity, max_seconds)
+    return [first] + plan_chunks(rest, vocal_activity, max_seconds, target_seconds)
 
 
 # --------------------------------------------------------------------------- #
@@ -377,10 +394,20 @@ def _align_qwen3(
         raise _Qwen3SanityError("qwen3 returned no results")
     items = results[0]
 
-    # Rebase + post-hoc sanity check. Anything that fails triggers a per-chunk
-    # whisperx fallback in the caller — no trial-and-error exception handling.
+    # Rebase + post-hoc sanity check. The policy split (learned on real A40
+    # runs, where single-word anomalies used to discard whole chunks of
+    # otherwise-good alignment):
+    #   - REPAIR isolated, explainable anomalies: zero-length spans (frame
+    #     quantization ties) and over-long spans (this is singing — held
+    #     notes blow past any speech-derived cap; a live run rejected 284
+    #     good words over one 7s 'what').
+    #   - REJECT structural garbage: decreasing spans, non-monotonic starts,
+    #     words outside the chunk window, or repairs needed on >20% of words
+    #     (systemic, not isolated). Rejection falls back to whisperx.
     words: list[dict] = []
     prev_start = -1.0
+    repaired = 0
+    dropped = 0
     # 50 ms slack on the window edges to tolerate Qwen's own rounding.
     lo = chunk_start - 0.05
     hi = chunk_end + 0.05
@@ -392,22 +419,36 @@ def _align_qwen3(
             raise _Qwen3SanityError("qwen3 item missing fields")
         ws = float(w_s) + chunk_start
         we = float(w_e) + chunk_start
-        if not (ws < we):
-            raise _Qwen3SanityError(f"non-increasing word span {ws} >= {we}")
-        if ws < prev_start:
-            raise _Qwen3SanityError(
-                f"word starts not monotonic: {ws} < prev {prev_start}"
-            )
-        if ws < lo or we > hi:
-            raise _Qwen3SanityError(
-                f"word [{ws}, {we}] outside chunk [{lo}, {hi}]"
-            )
-        if we - ws > 5.0:
-            raise _Qwen3SanityError(
-                f"word span exceeds 5s: {we - ws:.2f}s on {w_text!r}"
-            )
+        if we < ws:
+            raise _Qwen3SanityError(f"decreasing word span {ws} > {we}")
+        if we - ws < 0.02:  # frame-quantization tie → nominal 20 ms
+            we = min(ws + 0.02, hi)
+            repaired += 1
+        if we - ws > _MAX_WORD_SPAN_S:
+            # Clamp BEFORE the window check: an absurd 30 s "word" otherwise
+            # reads as out-of-window and used to discard the chunk.
+            we = ws + _MAX_WORD_SPAN_S
+            repaired += 1
+        if ws < prev_start or ws < lo or ws > hi:
+            # Out-of-order or starts outside the audio entirely (observed:
+            # a word stamped 11 s past the slice). Drop the offender; one
+            # missing word beats throwing away the whole chunk's alignment.
+            dropped += 1
+            continue
+        if we > hi:  # ends past the window: pull the tail in
+            we = hi
+            ws = min(ws, max(lo, we - 0.02))
+            repaired += 1
         prev_start = ws
         words.append({"text": str(w_text), "start": ws, "end": we})
+    anomalies = repaired + dropped
+    if anomalies > max(2, len(items) // 5):
+        raise _Qwen3SanityError(
+            f"{anomalies}/{len(items)} anomalies (repaired {repaired}, "
+            f"dropped {dropped}) — systemic"
+        )
+    if not words:
+        raise _Qwen3SanityError("no words survived sanity checks")
     return words
 
 
@@ -512,7 +553,12 @@ def run(
         audio = whisperx.load_audio(str(local_vocals))
 
         segments = split_at_vad_breaks(segments, vocal_activity)
-        chunks = plan_chunks(segments, vocal_activity, max_seconds=_QWEN_MAX_SECONDS)
+        chunks = plan_chunks(
+            segments,
+            vocal_activity,
+            max_seconds=_QWEN_MAX_SECONDS,
+            target_seconds=_QWEN_TARGET_SECONDS,
+        )
         log.info(
             job_id, "chunk plan",
             {"chunk_count": len(chunks),

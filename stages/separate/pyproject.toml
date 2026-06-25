@@ -18,6 +18,7 @@ dependencies = [
   "certifi>=2024",
   # torchaudio needs an I/O backend to save .wav; soundfile is the portable one.
   "soundfile>=0.12",
+  "torchcodec>=0.14.0",
 ]
 
 [build-system]
