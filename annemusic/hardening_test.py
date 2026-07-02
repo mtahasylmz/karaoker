@@ -175,8 +175,22 @@ def test_missing_text_rejects():
 
 
 def test_exact_20ms_spans_are_not_counted_as_repairs():
-    items = [_item(f"w{i}", i * 0.1, i * 0.1 + 0.02) for i in range(12)]
+    # start 0.0 so that end - start is EXACTLY the 0.02 literal (any other
+    # base start makes the subtraction drift a few ulps off the boundary).
+    items = [_item(f"w{i}", 0.0, 0.02) for i in range(12)]
     assert len(repair_words(items, 0.0, 10.0)) == 12
+
+
+def test_all_overlong_spans_reject():
+    items = [_item(f"w{i}", 1.0 + i * 0.1, 31.0 + i * 0.1) for i in range(12)]
+    with pytest.raises(SanityError, match="systemic"):
+        repair_words(items, 0.0, 50.0)
+
+
+def test_three_overlong_in_twenty_pass():
+    normal = [_item(f"w{i}", 1.0 + i * 0.1, 1.5 + i * 0.1) for i in range(17)]
+    overlong = [_item(f"o{i}", 3.0 + i * 0.1, 33.0 + i * 0.1) for i in range(3)]
+    assert len(repair_words(normal + overlong, 0.0, 50.0)) == 20
 
 
 def test_exact_cap_spans_are_not_counted_as_repairs():
@@ -343,6 +357,11 @@ def test_dialogue_line_is_pinned():
 
 def test_subcentisecond_word_gets_min_1cs_fill():
     assert "{\\kf1}x" in ass.build_ass([_w("x", 1.0, 1.004)])
+
+
+def test_one_centisecond_gap_is_not_swallowed():
+    doc = ass.build_ass([_w("a", 1.0, 1.5), _w("b", 1.51, 2.0)])
+    assert "{\\k1}" in doc
 
 
 def test_unrenderable_token_does_not_stop_the_line():
