@@ -17,7 +17,7 @@ import tempfile
 from pathlib import Path
 
 from annemusic import ass, backends, core, vad
-from annemusic.backends import _log
+from annemusic.backends import log
 
 
 class _Preflight(Exception):
@@ -84,11 +84,11 @@ def run(
     with tempfile.TemporaryDirectory(prefix="annemusic-") as tmp_s:
         tmp = Path(tmp_s)
         mix = tmp / "mix.wav"
-        _log("extracting audio")
+        log("extracting audio")
         backends.extract_audio(video, mix)
         duration = backends.audio_duration(mix)
 
-        _log("separating stems")
+        log("separating stems")
         vocals_src, instrumental_src = backends.separate(mix, tmp)
         vocals = out_dir / "vocals.wav"
         shutil.copyfile(vocals_src, vocals)
@@ -97,12 +97,12 @@ def run(
         vocal_activity = vad.detect(vocals)
         language = language_hint or backends.detect_language(vocals, vocal_activity)
 
-        _log(f"transcribing (language={language or 'auto'})")
+        log(f"transcribing (language={language or 'auto'})")
         asr_language, segments = backends.transcribe(
             mix=mix, vocals=vocals, language=language, lyrics=lyrics
         )
 
-        _log("aligning words")
+        log("aligning words")
         words = _align(vocals, segments, vocal_activity, language or asr_language)
 
     # A --language hint is echoed verbatim; otherwise report what ASR saw.
@@ -115,7 +115,7 @@ def run(
     (out_dir / "lyrics.ass").write_text(
         ass.build_ass(manifest["words"]), encoding="utf-8"
     )
-    _log(f"done: {len(manifest['words'])} words -> {out_dir}")
+    log(f"done: {len(manifest['words'])} words -> {out_dir}")
 
 
 def _align(
@@ -137,7 +137,7 @@ def _align(
     try:
         words += backends.align_whisperx(vocals, segments, language)
     except Exception as e:
-        _log(f"whisperx align failed ({type(e).__name__}: {e}); even-splitting")
+        log(f"whisperx align failed ({type(e).__name__}: {e}); even-splitting")
         words += core.synthesize_words(segments)
     return words
 
@@ -166,7 +166,7 @@ def _align_qwen3_chunks(
         try:
             words += backends.align_qwen3(vocals, chunk, language)
         except Exception as e:
-            _log(f"qwen3 align fallback for one chunk ({type(e).__name__}: {e})")
+            log(f"qwen3 align fallback for one chunk ({type(e).__name__}: {e})")
             remaining += chunk
     return words, remaining
 

@@ -49,7 +49,7 @@ _qwen3_device: str | None = None
 _qwen_aligner = None
 
 
-def _log(msg: str) -> None:
+def log(msg: str) -> None:
     print(f"annemusic: {msg}", file=sys.stderr, flush=True)
 
 
@@ -96,7 +96,7 @@ def separate(mix: Path, work_dir: Path, model: str | None = None) -> tuple[Path,
         try:
             return _separate_roformer(active, mix, Path(work_dir) / "stems")
         except Exception as e:
-            _log(f"roformer separation failed ({type(e).__name__}: {e}); "
+            log(f"roformer separation failed ({type(e).__name__}: {e}); "
                  "falling back to htdemucs")
             active = "htdemucs"
     if active not in DEMUCS_MODELS:
@@ -160,7 +160,7 @@ def _load_whisper():
         from faster_whisper import WhisperModel  # lazy
 
         size = os.environ.get("WHISPER_MODEL", "small")
-        _log(f"loading whisper ({size})")
+        log(f"loading whisper ({size})")
         _whisper_model = WhisperModel(
             size, device="cpu", compute_type=os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
         )
@@ -185,7 +185,7 @@ def detect_language(vocals: Path, vocal_activity: list[dict]) -> str | None:
         window, language=None, beam_size=1, vad_filter=False
     )
     prob = float(info.language_probability)
-    _log(f"detected language {info.language} (p={prob:.2f})")
+    log(f"detected language {info.language} (p={prob:.2f})")
     return info.language if prob >= _LID_MIN_PROB else None
 
 
@@ -202,7 +202,7 @@ def transcribe(
         try:
             return _transcribe_qwen3(mix, language, lyrics)
         except Exception as e:
-            _log(f"qwen3 transcribe failed ({type(e).__name__}: {e}); "
+            log(f"qwen3 transcribe failed ({type(e).__name__}: {e}); "
                  "falling back to whisper")
     return _transcribe_whisper(vocals, language, lyrics)
 
@@ -240,7 +240,7 @@ def _load_qwen3(force_device: str | None = None):
         dtype = torch.float16
     else:
         dtype = torch.float32
-    _log(f"loading qwen3 ASR on {device}")
+    log(f"loading qwen3 ASR on {device}")
     _qwen3_model = Qwen3ASRModel.from_pretrained(
         repo,
         dtype=dtype,
@@ -268,7 +268,7 @@ def _transcribe_qwen3(
         # MPS commonly hits op gaps at runtime; one-shot CPU retry.
         if _qwen3_device != "mps":
             raise
-        _log(f"qwen3 mps failed ({e}); reloading on cpu")
+        log(f"qwen3 mps failed ({e}); reloading on cpu")
         global _qwen3_model
         _qwen3_model = None
         results = _load_qwen3(force_device="cpu").transcribe(**kwargs)
@@ -301,7 +301,7 @@ def _transcribe_whisper(
         # job (the hint is still echoed verbatim into the manifest upstream).
         if language is None:
             raise
-        _log(f"whisper rejected language={language!r}; auto-detecting")
+        log(f"whisper rejected language={language!r}; auto-detecting")
         segments_iter, info = model.transcribe(str(vocals), language=None, **kwargs)
     segments = []
     for seg in segments_iter:
@@ -369,7 +369,7 @@ def align_qwen3(vocals: Path, chunk: list[dict], language: str) -> list[dict]:
         import torch
         from qwen_asr import Qwen3ForcedAligner
 
-        _log("loading qwen3 forced aligner")
+        log("loading qwen3 forced aligner")
         _qwen_aligner = Qwen3ForcedAligner.from_pretrained(
             "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16, device_map="cuda:0"
         )

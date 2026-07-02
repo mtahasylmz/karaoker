@@ -128,8 +128,7 @@ def test_repair_words_output_is_sane_or_rejected(items, chunk_start, chunk_len):
     assert words
     lo, hi = chunk_start - 0.05, chunk_end + 0.05
     starts = [w["start"] for w in words]
-    # The tail pull-in may retract a start by up to the 20 ms nominal span.
-    assert all(b >= a - 0.021 for a, b in zip(starts, starts[1:]))
+    assert starts == sorted(starts)  # non-decreasing (pipeline-2)
     for w in words:
         assert lo <= w["start"] <= hi
         assert w["start"] <= w["end"] <= hi

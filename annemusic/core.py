@@ -273,7 +273,9 @@ def repair_words(
             continue
         if we > hi:  # ends past the window: pull the tail in
             we = hi
-            ws = min(ws, max(lo, we - 0.02))
+            # Clamp to prev_start: the pull-in must not retract a start below
+            # the previous word's — manifest starts are non-decreasing (pipeline-2).
+            ws = max(prev_start, min(ws, max(lo, we - 0.02)))
             repaired += 1
         prev_start = ws
         words.append({"text": text, "start": ws, "end": we})

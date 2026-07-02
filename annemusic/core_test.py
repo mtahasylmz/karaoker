@@ -224,6 +224,22 @@ def test_word_ending_past_window_is_clamped():
     assert words[1]["end"] == pytest.approx(10.05)
 
 
+def test_tail_pull_in_never_retracts_below_previous_start():
+    # Two words crowded at the window edge: the second ends past hi and gets
+    # pulled in; its start must not drop below the first's (pipeline-2).
+    words = repair_words(
+        [
+            _item("early", 1.0, 1.5),
+            _item("edge", 10.04, 10.05),   # tie at the very edge
+            _item("tail", 10.045, 10.4),   # ends past hi=10.05 -> pulled in
+        ],
+        chunk_start=0.0,
+        chunk_end=10.0,
+    )
+    starts = [w["start"] for w in words]
+    assert starts == sorted(starts)
+
+
 def test_all_words_outside_rejects():
     with pytest.raises(SanityError, match="survived|systemic"):
         _repair([_item("ghost", 9.60, 9.90)])

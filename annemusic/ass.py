@@ -8,6 +8,8 @@ ASS colour format is &HAABBGGRR.
 
 from __future__ import annotations
 
+from annemusic.core import clean_words
+
 DEFAULT_STYLE = {
     "font": "Arial",
     "font_size": 72,
@@ -107,7 +109,7 @@ def _events(lines: list[list[dict]], tail: float) -> list[str]:
 
 def build_ass(words: list[dict], style: dict | None = None) -> str:
     s = {**DEFAULT_STYLE, **(style or {})}
-    cleaned = [w for w in words if w["text"] and w["end"] > w["start"]]
+    cleaned = clean_words(words)  # one definition of word validity (core's)
     lines = group_lines(cleaned, s["max_words_per_line"], s["break_gap"])
     events = _events(lines, s["tail"])
     return _header(s) + ("\n".join(events) + "\n" if events else "")
