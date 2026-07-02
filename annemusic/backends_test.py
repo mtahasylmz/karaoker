@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -55,3 +56,25 @@ def test_whisper_autodetect_valueerror_is_not_swallowed(monkeypatch):
     monkeypatch.setattr(backends, "_load_whisper", lambda: _Broken())
     with pytest.raises(ValueError, match="decode failed"):
         backends._transcribe_whisper(Path("v.wav"), None, None)
+
+
+def test_pick_device_env_override(monkeypatch):
+    monkeypatch.setenv("TRANSCRIBE_DEVICE", "cpu")
+    assert backends._pick_device() == "cpu"
+
+
+def test_separate_unknown_model_rejected(tmp_path):
+    with pytest.raises(RuntimeError, match="unknown SEPARATE_MODEL"):
+        backends.separate(tmp_path / "mix.wav", tmp_path, model="nope")
+
+
+def test_run_cmd_failure_raises_with_stderr(tmp_path):
+    with pytest.raises(RuntimeError, match="command failed"):
+        backends._run_cmd(
+            [sys.executable, "-c", "import sys; print('why', file=sys.stderr); sys.exit(3)"]
+        )
+
+
+def test_run_cmd_success_returns_process():
+    proc = backends._run_cmd([sys.executable, "-c", "print('hi')"])
+    assert proc.stdout.strip() == "hi"

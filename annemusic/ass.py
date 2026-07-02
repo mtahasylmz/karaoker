@@ -78,10 +78,8 @@ def _render_line(line: list[dict], tail: float) -> str:
     return f"Dialogue: 0,{fmt_time(t0)},{fmt_time(t1)},Default,,0,0,0,,{text}"
 
 
-def build_ass(words: list[dict], style: dict | None = None) -> str:
-    s = {**DEFAULT_STYLE, **(style or {})}
-    cleaned = [w for w in words if w["text"] and w["end"] > w["start"]]
-    header = (
+def _header(s: dict) -> str:
+    return (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
         f"PlayResX: {s['res_x']}\n"
@@ -101,6 +99,15 @@ def build_ass(words: list[dict], style: dict | None = None) -> str:
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, "
         "Effect, Text\n"
     )
+
+
+def _events(lines: list[list[dict]], tail: float) -> list[str]:
+    return [ev for ev in (_render_line(ln, tail) for ln in lines) if ev]
+
+
+def build_ass(words: list[dict], style: dict | None = None) -> str:
+    s = {**DEFAULT_STYLE, **(style or {})}
+    cleaned = [w for w in words if w["text"] and w["end"] > w["start"]]
     lines = group_lines(cleaned, s["max_words_per_line"], s["break_gap"])
-    events = [ev for ev in (_render_line(ln, s["tail"]) for ln in lines) if ev]
-    return header + ("\n".join(events) + "\n" if events else "")
+    events = _events(lines, s["tail"])
+    return _header(s) + ("\n".join(events) + "\n" if events else "")

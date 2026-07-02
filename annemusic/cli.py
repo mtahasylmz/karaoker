@@ -17,9 +17,18 @@ import tempfile
 from pathlib import Path
 
 from annemusic import ass, backends, core, vad
+from annemusic.backends import _log
 
 
-def main(argv: list[str] | None = None) -> int:
+class _Preflight(Exception):
+    """CLI refuses before any work starts; carries the exit code."""
+
+    def __init__(self, code: int, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="annemusic",
         description="Music video in -> instrumental + per-word karaoke subtitles out.",
@@ -29,32 +38,37 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--language", help="ISO language hint; skips detection")
     p.add_argument("--lyrics", help="known-lyrics text file to bias transcription")
     p.add_argument("--force", action="store_true", help="overwrite existing artifacts")
-    args = p.parse_args(argv)
+    return p.parse_args(argv)
 
+
+def _preflight(args: argparse.Namespace) -> tuple[Path, str | None, Path]:
+    """Validate inputs before any heavy work; raises _Preflight to refuse."""
     video = Path(args.video)
     if not video.is_file():
-        print(f"annemusic: input not found: {args.video}", file=sys.stderr)
-        return 2
-
+        raise _Preflight(2, f"input not found: {args.video}")
     lyrics = None
     if args.lyrics:
         lyrics_path = Path(args.lyrics)
         if not lyrics_path.is_file():
-            print(f"annemusic: lyrics file not found: {args.lyrics}", file=sys.stderr)
-            return 2
+            raise _Preflight(2, f"lyrics file not found: {args.lyrics}")
         lyrics = lyrics_path.read_text(encoding="utf-8")
-
     out_dir = core.resolve_out_dir(args.video, args.out)
     if (out_dir / "manifest.json").exists() and not args.force:
-        print(
-            f"annemusic: {out_dir / 'manifest.json'} already exists; "
-            "pass --force to overwrite",
-            file=sys.stderr,
+        raise _Preflight(
+            3,
+            f"{out_dir / 'manifest.json'} already exists; pass --force to overwrite",
         )
-        return 3
+    return video, lyrics, out_dir
 
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     try:
+        video, lyrics, out_dir = _preflight(args)
         run(video, out_dir, args.language, lyrics)
+    except _Preflight as e:
+        print(f"annemusic: {e}", file=sys.stderr)
+        return e.code
     except Exception as e:  # spec: readable one-line error, no traceback
         if os.environ.get("ANNEMUSIC_DEBUG"):
             raise
@@ -115,22 +129,8 @@ def _align(
     the last resort."""
     segments = core.split_at_vad_breaks(segments, vocal_activity)
     words: list[dict] = []
-    if (
-        language
-        and language.lower() in core.QWEN_ALIGN_LANGS
-        and backends.qwen3_align_available()
-    ):
-        remaining: list[dict] = []
-        chunks = core.plan_chunks(
-            segments, vocal_activity, target_seconds=core.QWEN_TARGET_SECONDS
-        )
-        for chunk in chunks:
-            try:
-                words += backends.align_qwen3(vocals, chunk, language)
-            except Exception as e:
-                _log(f"qwen3 align fallback for one chunk ({type(e).__name__}: {e})")
-                remaining += chunk
-        segments = remaining
+    if _qwen3_alignable(language):
+        words, segments = _align_qwen3_chunks(vocals, segments, vocal_activity, language)
         if not segments:
             return words
 
@@ -142,8 +142,33 @@ def _align(
     return words
 
 
-def _log(msg: str) -> None:
-    print(f"annemusic: {msg}", file=sys.stderr, flush=True)
+def _qwen3_alignable(language: str) -> bool:
+    return (
+        bool(language)
+        and language.lower() in core.QWEN_ALIGN_LANGS
+        and backends.qwen3_align_available()
+    )
+
+
+def _align_qwen3_chunks(
+    vocals: Path,
+    segments: list[dict],
+    vocal_activity: list[dict],
+    language: str,
+) -> tuple[list[dict], list[dict]]:
+    """Align per chunk; returns (words, segments left for the fallback)."""
+    words: list[dict] = []
+    remaining: list[dict] = []
+    chunks = core.plan_chunks(
+        segments, vocal_activity, target_seconds=core.QWEN_TARGET_SECONDS
+    )
+    for chunk in chunks:
+        try:
+            words += backends.align_qwen3(vocals, chunk, language)
+        except Exception as e:
+            _log(f"qwen3 align fallback for one chunk ({type(e).__name__}: {e})")
+            remaining += chunk
+    return words, remaining
 
 
 if __name__ == "__main__":

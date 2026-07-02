@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from annemusic import backends, cli, vad
+from annemusic import backends, cli, core, vad
 
 
 @pytest.fixture()
@@ -146,13 +146,31 @@ def test_align_falls_back_to_even_split(fake_pipeline, monkeypatch):
     assert manifest["words"][-1]["end"] == pytest.approx(3.0)
 
 
-def test_qwen3_align_used_when_available(fake_pipeline, monkeypatch):
-    seen = {}
+def test_pipeline_error_is_one_line_no_traceback(fake_pipeline, monkeypatch, capsys):
+    def boom(mix, vocals, language, lyrics):
+        raise RuntimeError("GPU on fire")
 
-    def align_qwen3(vocals, chunk, language):
-        seen["chunk"] = chunk
-        return [{"text": "la", "start": 0.0, "end": 3.0}]
+    monkeypatch.setattr(backends, "transcribe", boom)
+    tmp = fake_pipeline["tmp"]
+    rc = cli.main([str(fake_pipeline["video"]), "-o", str(tmp / "out")])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "RuntimeError: GPU on fire" in err
+    assert "Traceback" not in err
 
+
+def test_debug_env_reraises(fake_pipeline, monkeypatch):
+    def boom(mix, vocals, language, lyrics):
+        raise RuntimeError("boom")
+
+    monkeypatch.setenv("ANNEMUSIC_DEBUG", "1")
+    monkeypatch.setattr(backends, "transcribe", boom)
+    with pytest.raises(RuntimeError, match="boom"):
+        cli.main([str(fake_pipeline["video"]), "-o", str(fake_pipeline["tmp"] / "out")])
+
+
+def _run_with_qwen3_aligner(fake_pipeline, monkeypatch, align_qwen3):
+    """English run with the qwen3 aligner available; returns the manifest."""
     monkeypatch.setattr(backends, "qwen3_align_available", lambda: True)
     monkeypatch.setattr(backends, "align_qwen3", align_qwen3)
     monkeypatch.setattr(backends, "transcribe", lambda mix, vocals, language, lyrics: (
@@ -160,6 +178,25 @@ def test_qwen3_align_used_when_available(fake_pipeline, monkeypatch):
     tmp = fake_pipeline["tmp"]
     rc = cli.main([str(fake_pipeline["video"]), "-o", str(tmp / "out"), "--language", "en"])
     assert rc == 0
+    return json.loads((tmp / "out" / "manifest.json").read_text())
+
+
+def test_qwen3_chunk_failure_falls_back_to_whisperx(fake_pipeline, monkeypatch):
+    def align_qwen3(vocals, chunk, language):
+        raise core.SanityError("systemic garbage")
+
+    manifest = _run_with_qwen3_aligner(fake_pipeline, monkeypatch, align_qwen3)
+    # The whisperx stub aligned the chunk the qwen3 aligner dropped.
+    assert len(manifest["words"]) == 3
+
+
+def test_qwen3_align_used_when_available(fake_pipeline, monkeypatch):
+    seen = {}
+
+    def align_qwen3(vocals, chunk, language):
+        seen["chunk"] = chunk
+        return [{"text": "la", "start": 0.0, "end": 3.0}]
+
+    manifest = _run_with_qwen3_aligner(fake_pipeline, monkeypatch, align_qwen3)
     assert seen["chunk"]  # qwen3 aligner actually received the chunk
-    manifest = json.loads((tmp / "out" / "manifest.json").read_text())
     assert len(manifest["words"]) == 1

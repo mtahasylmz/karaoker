@@ -64,7 +64,9 @@ def _rms_envelope(data: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:
 
 def _smooth(envelope: np.ndarray) -> np.ndarray:
     win_frames = max(1, int(_SMOOTH_SEC / _HOP_SEC))
-    if win_frames <= 1:
+    if win_frames <= 1 or envelope.size == 0:
+        # np.convolve rejects empty input (audio shorter than one RMS frame);
+        # an empty envelope flows through to the all-instrumental fallback.
         return envelope
     kernel = np.ones(win_frames, dtype=np.float32) / win_frames
     return np.convolve(envelope, kernel, mode="same")
@@ -109,40 +111,53 @@ def _dilate_merge(regions: list[dict]) -> list[dict]:
     """Drop sub-threshold-duration regions and coalesce same-kind neighbors."""
     if not regions:
         return regions
+    return _coalesce(_bridge_short_gaps(_flip_short_vocals(regions)))
 
-    # 1. Tiny vocals blips flip to instrumental; coalesced in pass 3.
-    cleaned = [
+
+def _flip_short_vocals(regions: list[dict]) -> list[dict]:
+    """Tiny vocals blips flip to instrumental; coalesced by _coalesce."""
+    return [
         {**r, "kind": "instrumental"}
         if r["kind"] == "vocals" and r["end"] - r["start"] < _MIN_VOCALS_SEC
         else dict(r)
         for r in regions
     ]
 
-    # 2. Merge short instrumental gaps flanked by vocals on both sides — a
-    #    short instrumental at the head/tail of the song stays instrumental.
+
+def _bridgeable(regions: list[dict], merged: list[dict], i: int) -> bool:
+    """Short instrumental gap flanked by vocals on both sides — a short
+    instrumental at the head/tail of the song stays instrumental."""
+    r = regions[i]
+    return (
+        r["kind"] == "instrumental"
+        and (r["end"] - r["start"]) < _MIN_INSTRUMENTAL_SEC
+        and bool(merged)
+        and merged[-1]["kind"] == "vocals"
+        and i + 1 < len(regions)
+        and regions[i + 1]["kind"] == "vocals"
+    )
+
+
+def _bridge_short_gaps(regions: list[dict]) -> list[dict]:
+    """Merge bridgeable instrumental gaps into the surrounding vocals."""
     merged: list[dict] = []
     i = 0
-    while i < len(cleaned):
-        r = cleaned[i]
-        if (
-            r["kind"] == "instrumental"
-            and (r["end"] - r["start"]) < _MIN_INSTRUMENTAL_SEC
-            and merged
-            and merged[-1]["kind"] == "vocals"
-            and i + 1 < len(cleaned)
-            and cleaned[i + 1]["kind"] == "vocals"
-        ):
-            merged[-1]["end"] = cleaned[i + 1]["end"]
+    while i < len(regions):
+        if _bridgeable(regions, merged, i):
+            merged[-1]["end"] = regions[i + 1]["end"]
             i += 2
             continue
-        merged.append(r)
+        merged.append(regions[i])
         i += 1
+    return merged
 
-    # 3. Coalesce consecutive same-kind regions.
-    coalesced: list[dict] = []
-    for r in merged:
-        if coalesced and coalesced[-1]["kind"] == r["kind"]:
-            coalesced[-1]["end"] = r["end"]
+
+def _coalesce(regions: list[dict]) -> list[dict]:
+    """Coalesce consecutive same-kind regions."""
+    out: list[dict] = []
+    for r in regions:
+        if out and out[-1]["kind"] == r["kind"]:
+            out[-1]["end"] = r["end"]
         else:
-            coalesced.append(r)
-    return coalesced
+            out.append(r)
+    return out
