@@ -35,7 +35,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     p.add_argument("video", help="input music video (mp4/mov/webm/mkv)")
     p.add_argument("-o", "--out", help="output directory (default: ./<video-stem>/)")
-    p.add_argument("--language", help="ISO language hint; skips detection")
+    p.add_argument(
+        "--language",
+        type=str.lower,
+        help="ISO language hint, case-insensitive; skips detection",
+    )
     p.add_argument("--lyrics", help="known-lyrics text file to bias transcription")
     p.add_argument("--force", action="store_true", help="overwrite existing artifacts")
     return p.parse_args(argv)
@@ -105,7 +109,7 @@ def run(
         log("aligning words")
         words = _align(vocals, segments, vocal_activity, language or asr_language)
 
-    # A --language hint is echoed verbatim; otherwise report what ASR saw.
+    # A --language hint (lowercased at parse) wins; otherwise report what ASR saw.
     manifest = core.build_manifest(
         language_hint or asr_language, duration, words, vocal_activity
     )

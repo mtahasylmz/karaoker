@@ -69,7 +69,7 @@ def test_happy_path_writes_all_four_artifacts(fake_pipeline):
     assert "\\kf" in (out / "lyrics.ass").read_text()
 
 
-def test_language_hint_is_echoed_verbatim(fake_pipeline):
+def test_language_hint_is_stored_and_routed(fake_pipeline):
     tmp = fake_pipeline["tmp"]
     rc = cli.main([str(fake_pipeline["video"]), "-o", str(tmp / "out"), "--language", "en"])
     assert rc == 0
@@ -77,6 +77,17 @@ def test_language_hint_is_echoed_verbatim(fake_pipeline):
     assert manifest["language"] == "en"
     # The hint short-circuits LID and reaches the transcriber.
     assert fake_pipeline["calls"]["transcribe"]["language"] == "en"
+
+
+def test_uppercase_language_hint_is_lowercased(fake_pipeline):
+    # pipeline-9: hints are case-insensitive; normalized at the CLI boundary.
+    tmp = fake_pipeline["tmp"]
+    rc = cli.main([str(fake_pipeline["video"]), "-o", str(tmp / "out"), "--language", "TR"])
+    assert rc == 0
+    manifest = json.loads((tmp / "out" / "manifest.json").read_text())
+    assert manifest["language"] == "tr"
+    # Routing/transcription must see the normalized code, not the raw hint.
+    assert fake_pipeline["calls"]["transcribe"]["language"] == "tr"
 
 
 def test_default_out_dir_is_video_stem(fake_pipeline):
