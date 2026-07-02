@@ -130,7 +130,7 @@ a small CRAP script over coverage output.
 | code mutation | mutmut; `[tool.mutmut] paths_to_mutate` = pure modules only (`core.py`, `vad.py`, `ass.py`) — never `backends.py`/`cli.py` (subprocess/GPU wrappers; unit tests can't kill those mutants) |
 | CRAP | `tools/crap.py`: radon `cc --json` × coverage json, CRAP = c²·(1−cov)³ + c, threshold 30 |
 | DRY | `npx jscpd annemusic --languages python` |
-| Gherkin acceptance mutation | APS Babashka `gherkin-mutator --level soft` + `acceptance/mutation_runner.sh` adapter (regenerate from mutated feature, run acceptance pytest); needs the disk-cached acceptance runner to be affordable |
+| Gherkin acceptance mutation | APS Babashka `gherkin-mutator --level soft --generated-dir acceptance/generated --runner-worker "uv run python acceptance/mutation_worker.py"` (persistent ndjson worker per mutator-spec; generated tests load mutated IR via `APS_IR`); needs the disk-cached acceptance runner to be affordable |
 
 APS tools: Babashka `gherkin-parser`/`gherkin-mutator` from
 github.com/unclebob/Acceptance-Pipeline-Specification, fetched fresh (clone
