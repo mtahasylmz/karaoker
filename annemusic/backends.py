@@ -286,14 +286,23 @@ def _transcribe_whisper(
     vocals: Path, language: str | None, lyrics: str | None
 ) -> tuple[str, list[dict]]:
     model = _load_whisper()
-    segments_iter, info = model.transcribe(
-        str(vocals),
-        language=language,
+    kwargs = dict(
         vad_filter=True,
         beam_size=5,
         word_timestamps=False,
         initial_prompt=(lyrics[:200] if lyrics else None),
     )
+    try:
+        segments_iter, info = model.transcribe(
+            str(vocals), language=language, **kwargs
+        )
+    except ValueError:
+        # Garbage-in tolerated: an invalid --language hint must not crash the
+        # job (the hint is still echoed verbatim into the manifest upstream).
+        if language is None:
+            raise
+        _log(f"whisper rejected language={language!r}; auto-detecting")
+        segments_iter, info = model.transcribe(str(vocals), language=None, **kwargs)
     segments = []
     for seg in segments_iter:
         text = (seg.text or "").strip()
