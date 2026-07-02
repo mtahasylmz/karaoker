@@ -82,13 +82,16 @@ def audio_duration(path: Path) -> float:
 
 
 # --------------------------------------------------------------------------- #
-# Separation: mel-band roformer via audio-separator (isolated uvx env — it
-# needs numpy>=2, this project pins <2), htdemucs subprocess as fallback.
+# Separation. Default: htdemucs subprocess (warm cache, minutes on this M4).
+# Upgrade seam: SEPARATE_MODEL=mel_band_roformer_kim runs the bench winner
+# (+2.6 dB SDR) via audio-separator in an isolated uvx env (it needs numpy>=2,
+# this project pins <2) — measured 10+ min/song on M4 CPU, so opt-in only;
+# any roformer failure still falls back to htdemucs.
 # --------------------------------------------------------------------------- #
 
 def separate(mix: Path, work_dir: Path, model: str | None = None) -> tuple[Path, Path]:
     """Return (vocals, instrumental) stem paths under work_dir."""
-    active = (model or os.environ.get("SEPARATE_MODEL") or "mel_band_roformer_kim").strip()
+    active = (model or os.environ.get("SEPARATE_MODEL") or "htdemucs").strip()
     if active in AS_MODEL_FILES:
         try:
             return _separate_roformer(active, mix, Path(work_dir) / "stems")
