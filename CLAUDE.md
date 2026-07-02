@@ -1,147 +1,129 @@
 # annemusic
 
-Family-scale karaoke-video generator. User uploads a music video; the system returns a manifest pointing at (a) the original video, (b) a vocals-removed instrumental track, and (c) an ASS subtitle file that the browser overlays in real time with per-word fill animation via JASSUB. A "record-along" path lets users sing with the video and mixes their recording back over the instrumental.
+Karaoke pipeline: music video in → instrumental audio + per-word-timed `.ass`
+subtitles out. **No UI, no services** — a Python CLI on a CUDA box (RTX-class;
+RunPod SSH available for real-GPU runs). Everything before the 2026-06 fresh
+start lives on `main` history; don't rebuild it, harvest from it.
 
-**Status:** MVP (monolithic) shipped 2026-04-23 on Cloud Run, then restructured into stages with explicit contracts (phases A–D complete). Currently in Phase E: deploy hardening on the `hop-table` branch.
+## Mindset
 
-## Architecture
+1. **Ponytail** (`/ponytail`, always on): laziest thing that works. Stdlib over
+   dependency, one file over five, delete over add, YAGNI.
+2. **SwarmForge six-pack** (below): spec → user approval → architect → coder →
+   cleaner+hardener → QA. No code before an approved spec.
 
-```
-Browser (apps/web, React + JASSUB renderer)
-   │ POST /uploads → V4 signed PUT URL → PUT to GCS
-   │ POST /jobs → trigger workflow
-   ▼
-apps/api (Cloud Run, TS)  ──── triggers ────►  apps/orchestrator (Cloud Run, TS)
-                                                   │
-                                               @upstash/workflow
-                                                   │  context.call() (one per stage,
-                                                   │   up to 12h, retries via QStash)
-                                                   ▼
-                          ┌───────────────────────────┬───────────────────────┐
-                          │                           │                       │
-                  stages/separate           stages/transcribe          stages/align
-                  (Python, RoFormer         (Python, flow-routed        (Python, whisperx
-                   or demucs)                Qwen3-ASR / whisper)        wav2vec2)
-                          │                           │                       │
-                          └──────────┬────────────────┴───────────────────────┘
-                                     ▼
-                               stages/compose  (TS — ASS + manifest JSON, no re-encode)
-                                     │
-                                     ▼
-                          GCS: manifest.json, lyrics.ass, vocals.wav, instrumental.wav
-                                     │
-                                     ▼
-                  Browser reads manifest; JASSUB overlays ASS on <video>
-                  whose audio is the instrumental. Optional record-along:
-                    MediaRecorder → GCS → POST /record-mix
-                    → stages/record-mix (Python, ffmpeg + RubberBand)
-```
-
-**Why this shape:** contracts-first means each stage is replaceable without touching the others. `context.call()` in Upstash Workflow holds HTTP calls on their infra for up to 12 h with retries — stages stay stateless request/response servers with no long-poll quirks. Same orchestrator code runs against `@upstash/qstash-cli dev` locally or prod QStash.
-
-## Repo layout
+## Target shape
 
 ```
-packages/
-  contracts/         Zod schemas + generated JSON Schema. Single source of truth.
-  shared-ts/         (phase B) logger, upstash stream client, env helpers.
-  shared-py/         (phase B) same, Python.
-stages/
-  separate/          (phase D1) vocals/instrumental split. Python.
-  transcribe/        (phase D2) text + segment timings + vocal_activity. Python, flow-routed Qwen3-ASR / faster-whisper.
-  align/             (phase D3) segment → per-word timings. Python.
-  compose/           (phase D4) words + URIs → .ass + manifest. TS.
-  record-mix/        (phase D5) user recording + instrumental → mix. Python.
-apps/
-  orchestrator/      (phase C) @upstash/workflow, one workflow per pipeline run.
-  api/               (phase C) signed PUT URLs, /jobs, /users — TS.
-  web/               (phase C) React + JASSUB frontend.
-tools/
-  logs/              (phase B) pnpm logs CLI — tails Upstash Redis Streams.
-infra/
-  setup.sh           one-time GCP bootstrap (kept from MVP).
-  deploy-stage.sh    (phase E) parametric deploy of any stage or app.
-  bucket-cors.json   browser-PUT CORS config for the bucket.
-  wipe.sh            nuke all dev state (Redis + GCS).
-  env.example        every env var each service reads.
+video.mp4 → separate (roformer/demucs) → transcribe (qwen3-asr, LID first)
+          → align (qwen3-forced-aligner / whisperx) → lyrics.ass + manifest.json
 ```
 
-## Current phase status
+## Hard-won ML facts (validated on A40, 2026-06 — do not re-learn)
 
-- ✅ **Phase A** — Clean slate, monorepo scaffold, `packages/contracts` with Zod schemas exported as JSON Schema.
-- ✅ **Phase B** — Shared logger + Redis-Streams log tail CLI (`pnpm logs`).
-- ✅ **Phase C** — Orchestrator + API + web, end-to-end on localhost (stage stubs retired; `apps/stage-stub` kept for contract smoke tests).
-- ✅ **Phase D** — ML logic ported per stage: separate (RoFormer/demucs), transcribe (flow-routed Qwen3-ASR / faster-whisper), align (flow-routed Qwen3-ForcedAligner / whisperx), compose (TS), record-mix (v2 DSP knobs).
-- 🔜 **Phase E** — Cloud Run deploy hardening: Dockerfiles + `deploy-stage.sh` + `/manual` harness exist; auth topology, failure paths, and model-weight caching being fixed before first prod run.
+- **qwen3 aligner: pack chunks to ~120 s** (`QWEN_CHUNK_TARGET_S`). Quality
+  collapses near its 300 s cap — 57% degenerate word spans at 285 s, near-clean
+  at 60–130 s. 300 is the hard limit, not a packing size.
+- **Repair, don't reject:** aligner output has 1–2 wild artifacts per chunk
+  (zero-length ties, 30 s "words", words stamped past the audio). Nudge/clamp/drop
+  the offender; reject a chunk only when anomalies are systemic (>20%).
+- **Held sung notes run 5–10 s** — speech-derived word-span caps reject real lyrics.
+- **hf_transfer must be installed** wherever `HF_HUB_ENABLE_HF_TRANSFER=1`
+  (RunPod images set it globally); missing package = hard download failure.
+- **whisperx 3.1.6: never call `load_model`** (dead VAD URL). faster-whisper for
+  ASR, `whisperx.align()` only for wav2vec2 alignment.
+- **No language hint → detect first:** faster-whisper LID on a ~30 s vocals-stem
+  window anchored at the first VAD vocal region (song intros poison LID at 0 s).
+  Route qwen3 vs whisper off the detection (≥0.5 prob).
+- **Qwen3-ASR eats the full mix** (trained with BGM), wants English-name language
+  args, takes `context=` for known-lyrics biasing. Whisper wants the vocals stem.
+- **RMS-VAD on the vocals stem** is ground truth for instrumental breaks;
+  thresholds tuned for stem output (−40/−46 dBFS hysteresis).
+- **Subprocesses: `sys.executable`, never `"python"`.** torchaudio ≥2.9 needs
+  `torchcodec` to save audio. qwen-asr 0.0.6 throws internal NameError on ~4-word
+  chunks — absorb via per-chunk fallback.
+- **Separation bench (M4, 2026-04):** mel_band_roformer_kim > bs_roformer >
+  htdemucs (~+2.6 dB SDR both stems); via `audio-separator`, needs numpy≥2.
 
-## Key project scars (do not re-learn)
+# CLAUDE.md — SwarmForge Six-Pack, Orchestrated by Claude
 
-1. **YouTube blocks GCP ASN.** `yt-dlp` works from residential IPs but not Cloud Run / Compute Engine (AS15169). The project pivoted from "paste a URL" to "upload a file." Don't reintroduce server-side YouTube fetching without a residential proxy or PO-Token sidecar.
-2. **Cloud Run secret mounts are read-only.** Anything that needs to write-back to a mounted secret (e.g. session cookie refresh) silently fails. If a future stage needs mutable secrets, copy to `/tmp` at job start.
-3. **Cloud Build caches nothing by default.** `infra/cloudbuild.yaml` (coming in Phase E) reuses the MVP's `--cache-from :latest` pattern; code-only rebuilds are ~2 min, not 10.
-4. **whisperx 3.1.6's VAD model URL (S3) is dead.** `whisperx.load_model()` therefore must not be called. The MVP (and the `transcribe` stage plan) uses `faster_whisper.WhisperModel` for transcription and only `whisperx.align()` for the wav2vec2 forced-alignment step. If upgrading whisperx past 3.3, re-verify this.
-5. **`faster-whisper==1.0.3`** is pinned because whisperx 3.1.6 doesn't pass `hotwords` to `TranscriptionOptions`. If bumping faster-whisper, either bump whisperx together or inject `asr_options={"hotwords": None}`.
-6. **New GCP projects don't auto-grant Cloud Build the builder role on the Compute Engine default SA.** `infra/setup.sh` handles this; without it, `gcloud builds submit` 403s.
-7. **GCS signed PUT URLs inherit the signer's IAM.** The API SA needs `storage.objects.create` on the bucket AND `iam.serviceAccounts.tokenCreator` on itself (for `signBlob` from Cloud Run's metadata-server credentials).
-8. **Bucket CORS is required** for browser PUT (`infra/bucket-cors.json`).
-9. **Local testing beats cloud rebuilds.** Every stage will have a `bench/` directory with fixtures; reproduce locally before redeploying. The MVP lost several hours iterating in Cloud Run on issues a 30-second local run would have surfaced.
+This repo follows the SwarmForge discipline (github.com/unclebob/swarmforge,
+six-pack) without the tmux plumbing. Claude is the orchestrator: it plays the
+**specifier inline with the user** and runs the other five roles as **isolated
+subagents** (Workflow/Agent tool). Do not simulate six hats in one context —
+role isolation is the product, not an implementation detail.
 
-## Day-to-day
+If `swarmforge/roles/*.prompt` and `swarmforge/constitution/` exist in this
+repo, those full charters override the condensed ones below.
 
-```bash
-# Install + build contracts
-pnpm install
-pnpm contracts:build
+## Pipeline (strict, one-directional)
 
-# Tail logs (once phase B lands)
-pnpm logs --stage "*" --follow
+specifier (inline) → architect → coder → cleaner + hardener (batch, may run together) → QA → merge
 
-# Bring everything up locally (fills in as phases land)
-pnpm dev
+- **Approval gate:** no code until the user explicitly approves the spec.
+- Never reorder or skip stages. Failures loop back to the coder, not forward.
+- The git log is the handoff ledger: each role commits with a role-tagged message.
 
-# Wipe dev state (Redis + GCS)
-bash infra/wipe.sh --yes
+## Independence rule (the point of the roles)
 
-# Deploy one stage to Cloud Run (defaults: GPU for separate/transcribe/align,
-# CPU for compose/record-mix):
-bash infra/deploy-stage.sh transcribe                    # GPU by default
-bash infra/deploy-stage.sh compose                       # CPU by default
-bash infra/deploy-stage.sh transcribe --cpu              # opt out of GPU
-```
+Each subagent receives ONLY: its charter, the approved spec, and the diff.
+Never the conversation history, never another role's rationale. QA is prompted
+adversarially ("find where this violates the spec"), never confirmationally.
 
-## Iteration loop (code-from-GCS)
+## Roles (condensed charters)
 
-When iterating on a Python stage's `src/`, skip the Cloud Build cycle:
+**Specifier — Claude, inline with the user.**
+Turn intent into Gherkin in `features/*.feature` plus an end-to-end QA
+procedure in `qa/<feature>.qa.md`. Gherkin follows
+github.com/unclebob/Acceptance-Pipeline-Specification: scenario names are
+`<feature>-<index>`, parameters for anything that varies, prune example-table
+columns that don't improve acceptance mutation, hoist repeated setup into
+`Background`. E2E means through the user interface only — no project API; CLI
+flags count as UI when user-facing. Ask questions to settle ambiguity, then
+STOP for approval.
 
-```bash
-# One-time per dev session: deploy with --code-from-gcs (and --warm to
-# keep the GPU hot) plus seed the code mirror.
-bash infra/deploy-stage.sh transcribe --warm --code-from-gcs
-gcloud storage rsync --recursive stages/transcribe/src/ \
-  "gs://${GCS_BUCKET}/code/transcribe/"
+**Architect — subagent.**
+Plans the slice: module boundaries, what stays testable, small adapter seams
+around environmentally unsuitable code. Output is guidance for the coder, not code.
 
-# Per code edit (target <60 s, model weights stay warm via the GCS mount):
-bash infra/dev-sync.sh transcribe
+**Coder — subagent, isolated git worktree.**
+TDD: failing unit test first (one that a plausible wrong implementation would
+fail), then minimum code to pass. Keeps the acceptance pipeline green
+(gherkin-parser → project generator → generated tests). Regex-capture step
+handlers by default; separate literal handlers only for genuinely different
+behavior. Generated acceptance tests stay separate from unit tests. Does NOT
+touch the QA suite, and does not run mutation/CRAP/DRY.
 
-# At end of session, drop --warm to scale-to-zero:
-gcloud run services update annemusic-transcribe --min-instances=0 \
-  --region=us-central1 --project="$GCP_PROJECT"
-```
+**Cleaner — subagent, batch.** DRY and CRAP cleanup on touched code.
 
-The `--shadow` flag on `deploy-stage.sh` deploys with `--no-traffic`, warms
-the new revision via `/ping`, and then switches traffic — useful when the
-cold-start would otherwise interrupt active testing.
+**Hardener — subagent, batch.** Mutation testing; kill surviving mutants with
+better tests; property tests where they pay. Runs Gherkin acceptance mutation.
 
-## Manual QA at `/manual`
+**QA — subagent, adversarial.**
+Final independent verification: executable QA suite through the UI, acceptance
++ unit + property tests, then CRAP + DRY. Reproduce failures before changing
+code; QA-owned fixes stay minimal. If the QA suite contradicts the Gherkin or
+unit tests, STOP and ask — never silently change behavior.
 
-`apps/web` serves a per-stage test harness at `/manual` (5 doors + 5 tables)
-for observing intermediate artifacts between stages. Requests go through
-`apps/api` which proxies to each stage's Cloud Run URL with an OIDC token
-(localhost URLs skip auth). Set `SEPARATE_URL` / `TRANSCRIBE_URL` / `ALIGN_URL`
-/ `COMPOSE_URL` / `RECORDMIX_URL` in `apps/api`'s env. See `infra/env.example`.
+## Repo conventions
 
-## Contracts are the spine
+- `features/` — Gherkin specs
+- `qa/` — per-feature `*.qa.md` procedures + one executable suite (e.g. `qa/suite.ts`)
+- `acceptance/` — APS pipeline: parser wiring, generator, runtime, step handlers
+- Unit tests beside source (`*.test.*`), property tests `*.prop.*`
 
-Every stage validates both request and response against its schema (Python via `shared.schemas.validate`, TS via Zod; the orchestrator re-parses every stage response). If you're about to invent a new field, add it to `packages/contracts/src/<stage>.ts` first, then `pnpm contracts:build` to regenerate the JSON Schema the Python stages consume. Never hand-edit `packages/contracts/json-schema/*.json`.
+## Quality gates (all green before merge)
 
-**Tolerant reader:** generated schemas deliberately drop `additionalProperties: false` — producers may ship unknown fields freely and consumers ignore them, so adding an optional field never forces a lockstep redeploy. The TS↔Python routing mirror (`flows.ts` / `flows.py`) is guarded by `packages/shared-py/tests/test_flows_parity.py` against the `flows.json` snapshot that `contracts:build` emits.
+unit, acceptance, qa suite, property, code mutation, Gherkin acceptance
+mutation, CRAP, DRY. Tool mapping is per-language — establish it at repo setup
+and record it here. Known-good TS mapping: Stryker (mutation), jscpd (DRY),
+a small CRAP script over coverage output.
+
+## Bootstrap (first feature in a fresh repo)
+
+1. Specifier writes the first spec; user approves.
+2. Coder's first task includes standing up the APS acceptance pipeline
+   (use the APS `gherkin-parser`; never reimplement it) and the package
+   scripts for every quality gate.
+3. QA's first task includes making `qa/suite.ts` (or equivalent) executable
+   end-to-end against the real UI.

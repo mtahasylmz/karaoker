@@ -1,35 +1,15 @@
-__pycache__/
-*.pyc
-*.pyo
-.venv/
-venv/
-.env
-.env.local
-*.egg-info/
-dist/
-build/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
 .DS_Store
-tmp/
+.env
+.claude/
+.swarmforge/
+.worktrees/
+swarmforge/scripts/
+swarm/
+sample-music/
+.playwright-mcp/
+__pycache__/
+.venv/
 *.mp4
 *.wav
-*.mp3
 *.ass
-# Committed DSP assets — keep the broad audio ignore but carve out shipped IRs.
-!stages/record-mix/assets/plate_ir.wav
-.secrets/
-
-# node
-node_modules/
-*.tsbuildinfo
-.turbo/
-
-# playwright session artifacts
-.playwright-mcp/
-phase-*.png
-
-# claude code session state (worktrees etc.)
-.claude/
-sample-music/
+out/
