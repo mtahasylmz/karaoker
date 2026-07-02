@@ -1,3 +1,7 @@
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-07-02T16:46:18.197650Z","feature_name":"pipeline","feature_path":"/Users/mtahasylmz/Desktop/annemusic/features/pipeline.feature","background_hash":"7ac9635d031aee475146f0f701c79c32f2dc6287699f018677a2988e91146658","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: pipeline
   annemusic turns a music video into karaoke artifacts: an instrumental
   audio track, the isolated vocals stem, per-word-timed ASS subtitles,
