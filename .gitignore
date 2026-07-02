@@ -13,3 +13,6 @@ __pycache__/
 *.wav
 *.ass
 out/
+.aps/
+.acceptance-cache/
+acceptance/generated/

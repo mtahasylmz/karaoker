@@ -1,0 +1,41 @@
+[project]
+name = "annemusic"
+version = "0.1.0"
+description = "Karaoke pipeline: music video in, instrumental + per-word-timed ASS subtitles out"
+requires-python = ">=3.12"
+dependencies = [
+    "qwen-asr>=0.0.6",
+    "faster-whisper==1.0.3",
+    "demucs==4.0.1",
+    "numpy<2",
+    "soundfile>=0.12",
+    "torchcodec",
+]
+
+[project.scripts]
+annemusic = "annemusic.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "hypothesis>=6",
+    "mutmut>=2.4,<3",
+    "radon>=6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["annemusic"]
+
+[tool.pytest.ini_options]
+testpaths = ["annemusic"]
+python_files = ["*_test.py", "test_*.py"]
+
+[tool.mutmut]
+paths_to_mutate = "annemusic/core.py,annemusic/vad.py,annemusic/ass.py"
+runner = "uv run pytest -x -q"
+tests_dir = "annemusic/"

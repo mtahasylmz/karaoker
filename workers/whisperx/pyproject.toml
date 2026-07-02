@@ -1,0 +1,16 @@
+[project]
+name = "annemusic-whisperx-worker"
+version = "0.1.0"
+description = "Isolated whisperx align worker (torch<2.9 conflicts with qwen-asr's torchaudio==2.9.1)"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "whisperx==3.1.6",
+  "faster-whisper==1.0.3",
+  # Floor torch>=2.6: transformers' CVE-2025-32434 gate fails non-safetensors
+  # wav2vec2 checkpoints (e.g. the Turkish mpoyraz one) on torch<2.6.
+  # Ceiling <2.9: torchaudio 2.9 removed set_audio_backend(), which
+  # pyannote.audio (via whisperx 3.1.6) still calls at import time.
+  "torch>=2.6,<2.9",
+  "torchaudio>=2.6,<2.9",
+  "numpy<2",
+]
