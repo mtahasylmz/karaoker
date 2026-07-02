@@ -21,3 +21,4 @@ acceptance/generated/
 .coverage
 coverage.json
 .mutmut-cache
+build/

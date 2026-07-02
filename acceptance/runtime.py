@@ -30,6 +30,26 @@ CLI = ROOT / ".venv" / "bin" / "annemusic"
 _memo: dict[str, "Result"] = {}
 
 
+def _impl_hash() -> str:
+    """Fingerprint of the implementation under test.
+
+    Cached artifacts are only valid for the binary that produced them: a
+    gherkin-mutation sweep once "survived" against manifests a pre-fix CLI
+    had cached. Source files only (deps churn is rare; rebuilds are ~7 min
+    per run, so we don't invalidate on lockfile noise).
+    """
+    h = hashlib.sha1()
+    for p in sorted((ROOT / "annemusic").glob("*.py")):
+        if p.name.endswith(("_test.py", "_prop.py")):
+            continue
+        h.update(p.name.encode())
+        h.update(p.read_bytes())
+    return h.hexdigest()
+
+
+IMPL_HASH = _impl_hash()
+
+
 @dataclass
 class Result:
     exit_code: int
@@ -82,9 +102,11 @@ def run_cli(command: str, pre_files: list[str] | None = None) -> Result:
     slot = CACHE_DIR / key
     if cacheable and (slot / "meta.json").exists():
         meta = json.loads((slot / "meta.json").read_text())
-        result = Result(meta["exit_code"], meta["stderr"], slot / "cwd")
-        _memo[key] = result
-        return result
+        if meta.get("impl_hash") == IMPL_HASH:
+            result = Result(meta["exit_code"], meta["stderr"], slot / "cwd")
+            _memo[key] = result
+            return result
+        shutil.rmtree(slot, ignore_errors=True)  # stale: different implementation
 
     cwd = Path(tempfile.mkdtemp(prefix="annemusic-acceptance-"))
     for rel in pre_files or []:
@@ -106,6 +128,10 @@ def run_cli(command: str, pre_files: list[str] | None = None) -> Result:
             slot.mkdir(parents=True, exist_ok=True)
             shutil.copytree(cwd, slot / "cwd", dirs_exist_ok=True)
             (slot / "meta.json").write_text(
-                json.dumps({"exit_code": proc.returncode, "stderr": proc.stderr})
+                json.dumps({
+                    "exit_code": proc.returncode,
+                    "stderr": proc.stderr,
+                    "impl_hash": IMPL_HASH,
+                })
             )
     return result
