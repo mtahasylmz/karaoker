@@ -40,5 +40,8 @@ omit = ["annemusic/*_test.py", "annemusic/*_prop.py"]
 
 [tool.mutmut]
 paths_to_mutate = "annemusic/core.py,annemusic/vad.py,annemusic/ass.py"
-runner = "uv run pytest -x -q"
+# Direct pytest, NEVER `uv run pytest`: mutmut's timeout kills only the
+# runner process, and an orphaned pytest child keeps the stdout pipe open —
+# every infinite-loop mutant then stalls the whole run (the "146 untested").
+runner = "python -m pytest -x -q"
 tests_dir = "annemusic/"

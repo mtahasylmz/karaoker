@@ -143,11 +143,8 @@ def _align(
 
 
 def _qwen3_alignable(language: str) -> bool:
-    return (
-        bool(language)
-        and language.lower() in core.QWEN_ALIGN_LANGS
-        and backends.qwen3_align_available()
-    )
+    # core.flow_for owns the routing rules; don't re-derive them here.
+    return core.flow_for(language).align == "qwen3" and backends.qwen3_align_available()
 
 
 def _align_qwen3_chunks(

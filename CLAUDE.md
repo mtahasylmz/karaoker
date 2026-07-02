@@ -127,7 +127,7 @@ a small CRAP script over coverage output.
 | acceptance | `uv run python acceptance/generate.py && uv run pytest acceptance/generated` |
 | property | `uv run pytest -o python_files='*_prop.py' annemusic` (hypothesis; separate from unit run) |
 | coverage | pytest-cov → `--cov=annemusic --cov-report=json` |
-| code mutation | mutmut; `[tool.mutmut] paths_to_mutate` = pure modules only (`core.py`, `vad.py`, `ass.py`) — never `backends.py`/`cli.py` (subprocess/GPU wrappers; unit tests can't kill those mutants) |
+| code mutation | mutmut; `[tool.mutmut] paths_to_mutate` = pure modules only (`core.py`, `vad.py`, `ass.py`) — never `backends.py`/`cli.py` (subprocess/GPU wrappers; unit tests can't kill those mutants). Runner must exec pytest DIRECTLY (`python -m pytest`), never `uv run pytest`: mutmut's timeout kills only the runner process, an orphaned pytest child keeps the stdout pipe open, and every infinite-loop mutant then stalls the sweep (untested pile-up + a live mutant left on disk) |
 | CRAP | `tools/crap.py`: radon `cc --json` × coverage json, CRAP = c²·(1−cov)³ + c, threshold 30 |
 | DRY | `npx jscpd annemusic --languages python` |
 | Gherkin acceptance mutation | APS Babashka `gherkin-mutator --level soft --generated-dir acceptance/generated --runner-worker "uv run python acceptance/mutation_worker.py"` (persistent ndjson worker per mutator-spec; generated tests load mutated IR via `APS_IR`); needs the disk-cached acceptance runner to be affordable |
