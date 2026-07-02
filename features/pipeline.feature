@@ -59,3 +59,8 @@ Feature: pipeline
     Given "out/manifest.json" already exists
     When I run "annemusic $ANNEMUSIC_FIXTURE -o out"
     Then the exit code is non-zero and stderr says to pass --force
+
+  Scenario: pipeline-9 language hint is case-insensitive
+    When I run "annemusic $ANNEMUSIC_FIXTURE -o out --language TR"
+    Then the exit code is 0
+    And "out/manifest.json" field "language" equals "tr"
