@@ -16,3 +16,5 @@ out/
 .aps/
 .acceptance-cache/
 acceptance/generated/
+.acceptance-run.sh
+.acceptance-run.log
