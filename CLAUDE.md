@@ -119,6 +119,23 @@ mutation, CRAP, DRY. Tool mapping is per-language — establish it at repo setup
 and record it here. Known-good TS mapping: Stryker (mutation), jscpd (DRY),
 a small CRAP script over coverage output.
 
+### Python tool mapping (established 2026-07, architect)
+
+| Gate | Tool / command |
+|---|---|
+| unit | `uv run pytest` (testpaths = `annemusic/`, files `*_test.py`) |
+| acceptance | `uv run python acceptance/generate.py && uv run pytest acceptance/generated` |
+| property | `uv run pytest -o python_files='*_prop.py' annemusic` (hypothesis; separate from unit run) |
+| coverage | pytest-cov → `--cov=annemusic --cov-report=json` |
+| code mutation | mutmut; `[tool.mutmut] paths_to_mutate` = pure modules only (`core.py`, `vad.py`, `ass.py`) — never `backends.py`/`cli.py` (subprocess/GPU wrappers; unit tests can't kill those mutants) |
+| CRAP | `tools/crap.py`: radon `cc --json` × coverage json, CRAP = c²·(1−cov)³ + c, threshold 30 |
+| DRY | `npx jscpd annemusic --languages python` |
+| Gherkin acceptance mutation | APS Babashka `gherkin-mutator --level soft` + `acceptance/mutation_runner.sh` adapter (regenerate from mutated feature, run acceptance pytest); needs the disk-cached acceptance runner to be affordable |
+
+APS tools: Babashka `gherkin-parser`/`gherkin-mutator` from
+github.com/unclebob/Acceptance-Pipeline-Specification, fetched fresh (clone
+to a gitignored `.aps/`), never vendored or reimplemented. `bb` is installed.
+
 ## Bootstrap (first feature in a fresh repo)
 
 1. Specifier writes the first spec; user approves.
