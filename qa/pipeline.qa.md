@@ -9,11 +9,11 @@ set to a real music video (~3-5 min, sung vocals), and its `lyrics.txt`.
    under ~10 min on an RTX-class GPU.
 2. Play `/tmp/qa-run/instrumental.wav`: vocals audibly removed, music intact.
 3. Play `/tmp/qa-run/vocals.wav`: vocals audible, music suppressed.
-4. Open `lyrics.ass` in a text editor: Dialogue lines carry `\kf` tags; words
-   are the actual song lyrics, not gibberish.
+4. Open `lyrics.ass` in a text editor: one Dialogue line per lyric line,
+   timed; no `\kf` tags; the text is the actual song lyrics, not gibberish.
 5. Overlay check: `ffplay -vf "ass=/tmp/qa-run/lyrics.ass" $ANNEMUSIC_FIXTURE`
-   — word fills track the singing within ~0.5 s through verse and chorus;
-   no frozen highlight during instrumental breaks.
+   — each line appears/clears on the beat within ~0.5 s through verse and
+   chorus; no stale line frozen on screen during instrumental breaks.
 6. `manifest.json`: language matches the song; `vocal_activity` regions line
    up with audible instrumental breaks; word count plausible for the song.
 7. Re-run with `--language <wrong-lang>` and confirm it still exits 0
@@ -27,8 +27,9 @@ set to a real music video (~3-5 min, sung vocals), and its `lyrics.txt`.
     `manifest.source` == `"lrclib"`. This path skips ASR + alignment, so it
     is *fast* (separation + VAD only). Overlay-check (`ffplay -vf ass=...`):
     **the whole point** — line onsets should now land on the beat noticeably
-    better than the ASR run, since they come from human LRC timestamps. Words
-    fill linearly within each line; judge whether that reads as karaoke.
+    better than the ASR run, since they come from human LRC timestamps.
+    Line-level display (no word fill); judge whether the line changes read
+    as karaoke.
 11. Re-run with a nonsense `--artist`/`--title`: `manifest.source` == `"asr"`,
     all four artifacts still present (graceful fallback, no crash).
 12. Re-run the real song with `--no-lyrics-fetch`: `source` == `"asr"` (flag

@@ -5,8 +5,10 @@
 
 Feature: pipeline
   annemusic turns a music video into karaoke artifacts: an instrumental
-  audio track, the isolated vocals stem, per-word-timed ASS subtitles,
-  and a machine-readable manifest.
+  audio track, the isolated vocals stem, line-timed ASS subtitles, and a
+  machine-readable manifest. The .ass shows one styled line at a time during
+  its sung window — no per-word colour-fill animation. Word-level timings
+  still live in manifest.json for machine consumers.
 
   Background:
     Given the annemusic CLI is installed on a CUDA-capable machine
@@ -19,7 +21,7 @@ Feature: pipeline
     Then the exit code is 0
     And "out/instrumental.wav" is non-silent audio the same duration as the input (±1 s)
     And "out/vocals.wav" exists
-    And "out/lyrics.ass" has at least 10 Dialogue lines using \kf karaoke tags
+    And "out/lyrics.ass" has at least 10 timed Dialogue lines (one per lyric line, no \kf tags)
     And "out/manifest.json" has non-empty "language", "duration", "words", "vocal_activity"
 
   Scenario: pipeline-2 word timings are sane
@@ -78,7 +80,7 @@ Feature: pipeline
     And "out/manifest.json" field "source" equals "lrclib"
     And "out/manifest.json" has non-empty "words"
     And word starts are non-decreasing and every word lies within [0, duration]
-    And "out/lyrics.ass" has at least 10 Dialogue lines using \kf karaoke tags
+    And "out/lyrics.ass" has at least 10 timed Dialogue lines (one per lyric line, no \kf tags)
 
   Scenario: pipeline-11 unmatched song falls back to ASR, still succeeds
     When I run "annemusic $ANNEMUSIC_FIXTURE -o out --artist 'No Such Artist 9z9z' --title 'No Such Song 9z9z'"
