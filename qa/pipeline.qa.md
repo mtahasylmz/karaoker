@@ -21,5 +21,19 @@ set to a real music video (~3-5 min, sung vocals), and its `lyrics.txt`.
 8. Re-run into the same dir without `--force`: refused. With `--force`: clobbers.
 9. `annemusic missing.mp4`: non-zero exit, readable one-line error, no traceback.
 
-Record: fixture used, GPU, wall time per run, and any word-timing drift
-observed in step 5.
+## Known-lyrics timing (LRCLIB)
+
+10. Re-run with `--artist "$ANNEMUSIC_ARTIST" --title "$ANNEMUSIC_TITLE"`.
+    `manifest.source` == `"lrclib"`. This path skips ASR + alignment, so it
+    is *fast* (separation + VAD only). Overlay-check (`ffplay -vf ass=...`):
+    **the whole point** — line onsets should now land on the beat noticeably
+    better than the ASR run, since they come from human LRC timestamps. Words
+    fill linearly within each line; judge whether that reads as karaoke.
+11. Re-run with a nonsense `--artist`/`--title`: `manifest.source` == `"asr"`,
+    all four artifacts still present (graceful fallback, no crash).
+12. Re-run the real song with `--no-lyrics-fetch`: `source` == `"asr"` (flag
+    wins over an available match).
+
+Record: fixture used + its artist/title, GPU, wall time per run, LRCLIB
+match hit/miss, and side-by-side feel of the ASR run (step 5) vs the LRCLIB
+run (step 10) — which one earns "loved".

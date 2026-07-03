@@ -12,6 +12,7 @@ Feature: pipeline
     Given the annemusic CLI is installed on a CUDA-capable machine
     And ANNEMUSIC_FIXTURE points at a music video with sung lyrics
     And a matching "lyrics.txt" with the fixture's true lyrics sits beside it
+    And ANNEMUSIC_ARTIST and ANNEMUSIC_TITLE name the fixture song
 
   Scenario: pipeline-1 happy path emits all four artifacts
     When I run "annemusic $ANNEMUSIC_FIXTURE -o out"
@@ -65,3 +66,27 @@ Feature: pipeline
     When I run "annemusic $ANNEMUSIC_FIXTURE -o out --language TR"
     Then the exit code is 0
     And "out/manifest.json" field "language" equals "tr"
+
+  # Known-lyrics timing: when --artist/--title resolve synced lyrics on
+  # LRCLIB, the human line timestamps drive timing (words distributed evenly
+  # within each line) instead of ASR + forced alignment. manifest "source"
+  # records which path ran: "lrclib" | "asr".
+
+  Scenario: pipeline-10 synced lyrics drive timing
+    When I run "annemusic $ANNEMUSIC_FIXTURE -o out --artist $ANNEMUSIC_ARTIST --title $ANNEMUSIC_TITLE"
+    Then the exit code is 0
+    And "out/manifest.json" field "source" equals "lrclib"
+    And "out/manifest.json" has non-empty "words"
+    And word starts are non-decreasing and every word lies within [0, duration]
+    And "out/lyrics.ass" has at least 10 Dialogue lines using \kf karaoke tags
+
+  Scenario: pipeline-11 unmatched song falls back to ASR, still succeeds
+    When I run "annemusic $ANNEMUSIC_FIXTURE -o out --artist 'No Such Artist 9z9z' --title 'No Such Song 9z9z'"
+    Then the exit code is 0
+    And "out/manifest.json" field "source" equals "asr"
+    And "out/instrumental.wav", "out/vocals.wav", "out/lyrics.ass", "out/manifest.json" all exist
+
+  Scenario: pipeline-12 --no-lyrics-fetch forces the ASR path
+    When I run "annemusic $ANNEMUSIC_FIXTURE -o out --artist $ANNEMUSIC_ARTIST --title $ANNEMUSIC_TITLE --no-lyrics-fetch"
+    Then the exit code is 0
+    And "out/manifest.json" field "source" equals "asr"
