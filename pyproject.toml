@@ -23,6 +23,7 @@ dev = [
     "hypothesis>=6",
     "mutmut>=2.4,<3",
     "radon>=6",
+    "pytest-timeout>=2.4.0",
 ]
 
 [build-system]
@@ -44,5 +45,8 @@ paths_to_mutate = "annemusic/core.py,annemusic/repair.py,annemusic/chunks.py,ann
 # Direct pytest, NEVER `uv run pytest`: mutmut's timeout kills only the
 # runner process, and an orphaned pytest child keeps the stdout pipe open —
 # every infinite-loop mutant then stalls the whole run (the "146 untested").
-runner = "python -m pytest -x -q"
+# --timeout kills an infinite-loop mutant IN-PROCESS (SIGALRM, reliable on
+# macOS where mutmut's own subprocess kill can leave the pytest child spinning
+# and wedge the whole serial sweep). 15 s >> any real unit test (<2 s).
+runner = "python -m pytest -x -q --timeout=15 --timeout-method=signal"
 tests_dir = "annemusic/"
