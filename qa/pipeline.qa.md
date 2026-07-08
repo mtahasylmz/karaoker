@@ -35,6 +35,20 @@ set to a real music video (~3-5 min, sung vocals), and its `lyrics.txt`.
 12. Re-run the real song with `--no-lyrics-fetch`: `source` == `"asr"` (flag
     wins over an available match).
 
+## ASR line quality + secondary providers
+
+13. In the `--no-lyrics-fetch` run's `lyrics.ass`: no line ends with `,` or
+    `.`; lines start uppercase; breaks land at sentence/phrase ends and sung
+    pauses — compare against the pre-punctuation A/B (`out/karaoke-asr.mp4`
+    from 2026-07-08): mid-phrase breaks like "…happier than / ever. Wish…"
+    must be gone.
+14. Pick a song LRCLIB misses but Musixmatch has (check lrclib.net manually).
+    Run with `--artist/--title`: `manifest.source` names the provider, and
+    line timing quality is human-grade like the LRCLIB path.
+15. Whisper-fallback hardening (unit-level, spot-check): force a whisper
+    fallback (e.g. a language outside Qwen3's set) and confirm no
+    "Thank you."-style hallucinated lines over instrumental sections.
+
 Record: fixture used + its artist/title, GPU, wall time per run, LRCLIB
 match hit/miss, and side-by-side feel of the ASR run (step 5) vs the LRCLIB
 run (step 10) — which one earns "loved".

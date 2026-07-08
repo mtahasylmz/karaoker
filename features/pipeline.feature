@@ -93,3 +93,24 @@ Feature: pipeline
     When I run "annemusic $ANNEMUSIC_FIXTURE -o out --artist $ANNEMUSIC_ARTIST --title $ANNEMUSIC_TITLE --no-lyrics-fetch"
     Then the exit code is 0
     And "out/manifest.json" field "source" equals "asr"
+
+  # ASR-path line quality (Jam-ALT / industry conventions): lines break at
+  # sentence punctuation and sung pauses, never mid-phrase by word count;
+  # line-final commas/periods are stripped; lines start uppercase.
+
+  Scenario: pipeline-13 ASR lines follow lyric conventions
+    When I run "annemusic $ANNEMUSIC_FIXTURE -o out --no-lyrics-fetch"
+    Then the exit code is 0
+    And no Dialogue line in "out/lyrics.ass" ends with "," or "."
+    And every Dialogue line in "out/lyrics.ass" starts with an uppercase letter or a digit
+    And "out/lyrics.ass" has at least 10 timed Dialogue lines (one per lyric line, no \kf tags)
+
+  # Wider synced-lyrics net: when LRCLIB misses, other providers
+  # (via the syncedlyrics library) are tried before falling back to ASR.
+  # manifest "source" names the provider that hit ("lrclib", "musixmatch",
+  # ...) or "asr". Needs network; the step skips politely offline.
+
+  Scenario: pipeline-14 secondary synced providers are tried before ASR
+    Given a song that LRCLIB misses but a secondary provider has synced
+    When the pipeline runs for it with --artist and --title
+    Then "manifest.json" field "source" names that provider, not "asr"
