@@ -16,14 +16,10 @@ import numpy as np
 import pytest
 
 from annemusic import ass, backends, core, vad
-from annemusic.core import (
-    SanityError,
-    plan_chunks,
-    repair_words,
-    split_at_vad_breaks,
-    synthesize_words,
-)
-from annemusic.lines import words_to_lines
+from annemusic.chunks import plan_chunks, split_at_vad_breaks
+from annemusic.core import synthesize_words
+from annemusic.lines import _ABBREVS, words_to_lines
+from annemusic.repair import SanityError, repair_words
 
 
 def _seg(start: float, end: float, text: str = "x") -> dict:
@@ -65,11 +61,11 @@ def test_iso_name_map_covers_exactly_the_routed_languages():
 
 
 def test_qwen_chunk_target_env_knob():
-    # Subprocess, not importlib.reload: reloading core in-process would swap
-    # class identities (SanityError) under every later test in the session.
+    # Subprocess, not importlib.reload: reloading modules in-process would
+    # swap class identities under every later test in the session.
     proc = subprocess.run(
         [sys.executable, "-c",
-         "import annemusic.core as c; assert c.QWEN_TARGET_SECONDS == 90.0"],
+         "import annemusic.chunks as c; assert c.QWEN_TARGET_SECONDS == 90.0"],
         env={**os.environ, "QWEN_CHUNK_TARGET_S": "90"},
         capture_output=True,
     )
@@ -149,6 +145,16 @@ def test_empty_text_multi_region_segment_passes_through():
 def test_single_clipping_region_does_not_rewrite_the_segment():
     seg = _seg(0.0, 100.0, "a b")
     out = split_at_vad_breaks([seg], [_vox(10.0, 40.0)])
+    assert out == [seg]
+
+
+def test_two_zero_width_regions_pass_through_not_divide_by_zero():
+    # Two zero-width vocals marks INSIDE the segment survive the overlap filter
+    # (each a<end and b>start) yet clip to zero total width. The guard is
+    # `total <= 0`, not `< 0`: without the `== 0` case the proportional
+    # allocation would divide by a zero total. The segment must pass through.
+    seg = _seg(10.0, 20.0, "a b c")
+    out = split_at_vad_breaks([seg], [_vox(12.0, 12.0), _vox(15.0, 15.0)])
     assert out == [seg]
 
 
@@ -405,3 +411,69 @@ def test_soft_char_cap_breaks_only_as_last_resort():
     words = [_w("abcdef", i * 0.1, i * 0.1 + 0.05) for i in range(8)]
     lines = words_to_lines(words)
     assert len(lines) >= 2
+
+
+def _chars(*lens: int) -> list[dict]:
+    # Gapless, unpunctuated words of the given char lengths — nothing but the
+    # soft cap can break them, so break position is a pure function of the
+    # char-count arithmetic.
+    return [_w("a" * n, i * 0.1, i * 0.1 + 0.05) for i, n in enumerate(lens)]
+
+
+def test_soft_cap_break_is_exactly_at_42_chars():
+    # The cap check is `chars_so_far + 1 + len(next) > 42` (chars_so_far is the
+    # joined length of the line so far). Pin the EXACT boundary so the off-by-one
+    # arithmetic (the +1 space term, the +len lookahead, the 42 literal, the
+    # `>` vs `>=`) is nailed, not just "some break happens under ~48 chars".
+    #
+    # 36 + 1(space) + 6 = 43 > 42 -> the second word opens a new line.
+    assert len(words_to_lines(_chars(36, 6))) == 2
+    # 35 + 1 + 6 = 42, NOT > 42 -> both words stay on one 42-char line.
+    one = words_to_lines(_chars(35, 6))
+    assert len(one) == 1 and len(one[0]["text"]) == 42
+
+
+def test_soft_cap_char_count_resets_per_line():
+    # After a break the running char count must reset to the same base (-1, so
+    # the first word contributes exactly its length). A sentence break opens
+    # line 2; its soft-cap boundary must land at 42 just like line 1's — proving
+    # the reset re-initialises the counter correctly (not off by ±1).
+    #
+    # line 2 = 35 + 1 + 6 = 42 -> stays one line: [Go][42-char line]. A reset to
+    # a base ONE HIGHER (-1 -> 0/+1) would over-count and wrongly split line 2.
+    assert len(words_to_lines([_w("go.", 0.0, 0.5), *_chars(35, 6)])) == 2
+    # line 2 = 28 + 1 + 14 = 43 > 42 -> splits: [Go][28-char][14-char]. A reset to
+    # a base ONE LOWER (-1 -> -2) would under-count and wrongly keep line 2 whole.
+    assert len(words_to_lines([_w("go.", 0.0, 0.5), *_chars(28, 14)])) == 3
+
+
+def test_only_punctuation_breaks_a_line_never_a_letter():
+    # The break sets hold punctuation, not letters: a word ending in a plain
+    # capital letter (here "X") must NOT open a new line the way a sentence or
+    # clause mark does. Pins _SENTENCE_END / _CLAUSE_END to punctuation only.
+    lines = words_to_lines([_w("boX", 0.0, 0.4), _w("now", 0.5, 0.9)])
+    assert [ln["text"] for ln in lines] == ["BoX now"]
+
+
+def test_line_final_strip_removes_only_comma_and_period_not_letters():
+    # The line-final strip drops ',' and '.', never a trailing letter: a line
+    # ending in a capital "X" keeps it (rstrip must not widen to a letter set).
+    assert words_to_lines([_w("MAX", 0.0, 0.5)])[0]["text"] == "MAX"
+
+
+def test_capitalization_tests_exactly_the_first_character():
+    # The capitalize guard inspects the FIRST char only. A line whose first char
+    # is a letter but whose second is punctuation ("a?") must still be
+    # capitalized ("A?") — a two-char isalpha() check would skip it.
+    assert words_to_lines([_w("a?", 0.0, 0.5)])[0]["text"] == "A?"
+
+
+@pytest.mark.parametrize("abbrev", sorted(_ABBREVS))
+def test_every_known_abbreviation_does_not_end_a_line(abbrev):
+    # Each entry of the abbreviation set exists so its trailing period is NOT a
+    # sentence end. Drive the whole set (not one hand-picked "Mr.") so corrupting
+    # ANY single entry — e.g. dropping "dr." — is caught: that abbreviation would
+    # wrongly break "Dr. Jones" into two lines.
+    title = abbrev[:-1].capitalize() + "."  # "mrs." -> "Mrs."
+    lines = words_to_lines([_w(title, 0.0, 0.4), _w("Jones", 0.5, 0.9)])
+    assert [ln["text"] for ln in lines] == [f"{title} Jones"]

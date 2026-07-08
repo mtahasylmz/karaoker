@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from annemusic import backends, cli, core, vad
+from annemusic import backends, cli, repair, vad
 
 
 def _boom(msg: str):
@@ -309,7 +309,7 @@ def _run_with_qwen3_aligner(fake_pipeline, monkeypatch, align_qwen3):
 
 def test_qwen3_chunk_failure_falls_back_to_whisperx(fake_pipeline, monkeypatch):
     def align_qwen3(vocals, chunk, language):
-        raise core.SanityError("systemic garbage")
+        raise repair.SanityError("systemic garbage")
 
     manifest = _run_with_qwen3_aligner(fake_pipeline, monkeypatch, align_qwen3)
     # The whisperx stub aligned the chunk the qwen3 aligner dropped.

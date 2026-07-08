@@ -16,7 +16,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from annemusic import ass, backends, core, lines, lrclib, synced, vad
+from annemusic import ass, backends, chunks, core, lines, lrclib, synced, vad
 from annemusic.backends import log
 
 
@@ -161,7 +161,7 @@ def _align(
     """Route alignment: qwen3 (CUDA, 11 languages) per ~120 s chunk with
     per-chunk whisperx fallback; whisperx for everything else; even-split as
     the last resort."""
-    segments = core.split_at_vad_breaks(segments, vocal_activity)
+    segments = chunks.split_at_vad_breaks(segments, vocal_activity)
     words: list[dict] = []
     if _qwen3_alignable(language):
         words, segments = _align_qwen3_chunks(vocals, segments, vocal_activity, language)
@@ -190,10 +190,10 @@ def _align_qwen3_chunks(
     """Align per chunk; returns (words, segments left for the fallback)."""
     words: list[dict] = []
     remaining: list[dict] = []
-    chunks = core.plan_chunks(
-        segments, vocal_activity, target_seconds=core.QWEN_TARGET_SECONDS
+    planned = chunks.plan_chunks(
+        segments, vocal_activity, target_seconds=chunks.QWEN_TARGET_SECONDS
     )
-    for chunk in chunks:
+    for chunk in planned:
         try:
             words += backends.align_qwen3(vocals, chunk, language)
         except Exception as e:

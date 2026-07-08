@@ -8,13 +8,13 @@ Line-final commas/periods are stripped and each line is capitalized.
 Split out of core.py so the display-segmentation rules don't ride along with
 the low-level pipeline primitives. The LRC path skips this entirely (human
 lyrics are already punctuated and cased); its even token-spread lives in
-core.even_words. ``clean_words`` stays the one shared primitive in core; this
-module depends on it one-directionally.
+core.even_words. ``clean_words`` stays the one shared primitive in repair;
+this module depends on it one-directionally.
 """
 
 from __future__ import annotations
 
-from annemusic.core import clean_words
+from annemusic.repair import clean_words
 
 
 # Line segmentation for the ASR path (Jam-ALT / karaoke conventions). The LRC
