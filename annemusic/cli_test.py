@@ -62,11 +62,47 @@ def test_happy_path_writes_all_four_artifacts(fake_pipeline):
     assert (out / "vocals.wav").exists()
     assert (out / "instrumental.wav").exists()
     manifest = json.loads((out / "manifest.json").read_text())
-    assert set(manifest) == {"language", "duration", "words", "vocal_activity"}
+    assert set(manifest) == {"source", "language", "duration", "words", "vocal_activity"}
+    assert manifest["source"] == "asr"
     assert manifest["language"] == "tr"
     assert manifest["duration"] == 240.0
     assert len(manifest["words"]) == 3
-    assert "\\kf" in (out / "lyrics.ass").read_text()
+    ass_doc = (out / "lyrics.ass").read_text()
+    assert "\\kf" not in ass_doc  # line-level, no fill animation
+    assert "Dialogue:" in ass_doc
+
+
+def test_lrclib_hit_uses_synced_lyrics(fake_pipeline, monkeypatch):
+    tmp = fake_pipeline["tmp"]
+    from annemusic import lrclib
+
+    monkeypatch.setattr(
+        lrclib, "fetch",
+        lambda title, artist, dur: [
+            {"text": "line one here", "start": 10.0, "end": 12.0},
+            {"text": "line two now", "start": 12.0, "end": 15.0},
+        ],
+    )
+    rc = cli.main([str(fake_pipeline["video"]), "-o", str(tmp / "out"),
+                   "--artist", "X", "--title", "Y"])
+    assert rc == 0
+    manifest = json.loads((tmp / "out" / "manifest.json").read_text())
+    assert manifest["source"] == "lrclib"
+    assert "transcribe" not in fake_pipeline["calls"]  # ASR skipped
+    assert [w["text"] for w in manifest["words"][:3]] == ["line", "one", "here"]
+
+
+def test_no_lyrics_fetch_forces_asr(fake_pipeline, monkeypatch):
+    tmp = fake_pipeline["tmp"]
+    from annemusic import lrclib
+
+    monkeypatch.setattr(lrclib, "fetch", lambda *a: (_ for _ in ()).throw(
+        AssertionError("fetch must not be called")))
+    rc = cli.main([str(fake_pipeline["video"]), "-o", str(tmp / "out"),
+                   "--artist", "X", "--title", "Y", "--no-lyrics-fetch"])
+    assert rc == 0
+    manifest = json.loads((tmp / "out" / "manifest.json").read_text())
+    assert manifest["source"] == "asr"
 
 
 def test_language_hint_is_stored_and_routed(fake_pipeline):

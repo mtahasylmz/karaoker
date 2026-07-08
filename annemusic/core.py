@@ -312,17 +312,58 @@ def clean_words(words: list[dict]) -> list[dict]:
 
 
 def build_manifest(
+    source: str,
     language: str,
     duration: float,
     words: list[dict],
     vocal_activity: list[dict],
 ) -> dict:
     return {
+        "source": source,
         "language": language,
         "duration": duration,
         "words": clean_words(words),
         "vocal_activity": vocal_activity,
     }
+
+
+def even_words(lines: list[dict]) -> list[dict]:
+    """Split each LRC line's text into words spread evenly across [start, end].
+    Line windows are human LRC marks; within a line we don't know onsets, so
+    distribute uniformly."""
+    out: list[dict] = []
+    for ln in lines:
+        toks = (ln.get("text") or "").split()
+        if not toks:
+            continue
+        s, e = float(ln["start"]), float(ln["end"])
+        step = max((e - s) / len(toks), 0.001)  # keep end > start for clean_words
+        for i, tok in enumerate(toks):
+            out.append({"text": tok, "start": s + i * step, "end": s + (i + 1) * step})
+    return out
+
+
+def words_to_lines(
+    words: list[dict], max_words: int = 8, break_gap: float = 1.5
+) -> list[dict]:
+    """Group aligned words into display lines (break on a silence gap or word
+    cap), collapsed to {text, start, end}. The ASR path needs this; the LRC
+    path already has lines."""
+    groups: list[list[dict]] = []
+    current: list[dict] = []
+    for w in clean_words(words):
+        if current and (
+            w["start"] - current[-1]["end"] > break_gap or len(current) >= max_words
+        ):
+            groups.append(current)
+            current = []
+        current.append(w)
+    if current:
+        groups.append(current)
+    return [
+        {"text": " ".join(w["text"] for w in g), "start": g[0]["start"], "end": g[-1]["end"]}
+        for g in groups
+    ]
 
 
 def resolve_out_dir(video: str, out: str | None) -> Path:

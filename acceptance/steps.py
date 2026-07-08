@@ -8,6 +8,7 @@ genuinely different behavior.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -97,6 +98,12 @@ def given_lyrics_beside_fixture(ctx):
     ctx["lyrics_available"] = bool(lyr and lyr.exists())
 
 
+@step(r"ANNEMUSIC_ARTIST and ANNEMUSIC_TITLE name the fixture song")
+def given_artist_title(ctx):
+    if not (os.environ.get("ANNEMUSIC_ARTIST") and os.environ.get("ANNEMUSIC_TITLE")):
+        pytest.skip("ANNEMUSIC_ARTIST/ANNEMUSIC_TITLE not set")
+
+
 # --------------------------------------------------------------------------- #
 # When
 # --------------------------------------------------------------------------- #
@@ -163,14 +170,18 @@ def then_nonsilent_same_duration(ctx, rel):
     assert rms > 1e-4, f"audio is silent (rms={rms:.2e})"
 
 
-@step(r'"([^"]+)" has at least (\d+) Dialogue lines using \\kf karaoke tags')
+@step(r'"([^"]+)" has at least (\d+) timed Dialogue lines \(one per lyric line, no \\kf tags\)')
 def then_ass_dialogue_lines(ctx, rel, count):
     text = _artifact(ctx, rel).read_text()
-    dialogue = [
-        ln for ln in text.splitlines()
-        if ln.startswith("Dialogue:") and "\\kf" in ln
-    ]
-    assert len(dialogue) >= int(count), f"only {len(dialogue)} \\kf Dialogue lines"
+    dialogue = [ln for ln in text.splitlines() if ln.startswith("Dialogue:")]
+    assert "\\kf" not in text, "line-level ASS must not carry \\kf fill tags"
+    assert len(dialogue) >= int(count), f"only {len(dialogue)} Dialogue lines"
+
+
+@step(r'((?:"[^"]+",? ?)+) all exist')
+def then_all_exist(ctx, group):
+    for rel in re.findall(r'"([^"]+)"', group):
+        assert _artifact(ctx, rel).exists(), f"missing artifact: {rel}"
 
 
 @step(r'"([^"]+)" has non-empty (.+)')

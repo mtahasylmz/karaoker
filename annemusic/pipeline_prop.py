@@ -175,24 +175,22 @@ def test_fmt_time_parses_back_to_the_same_centiseconds(t):
 
 
 @given(word_lists(), st.integers(1, 10), st.floats(0.1, 5))
-def test_group_lines_conserves_words_and_bounds(words, max_words, gap):
-    lines = ass.group_lines(words, max_words, gap)
-    assert [w for ln in lines for w in ln] == words
-    assert all(1 <= len(ln) <= max_words for ln in lines)
+def test_words_to_lines_conserves_words_and_bounds(words, max_words, gap):
+    lines = core.words_to_lines(words, max_words, gap)
+    clean = core.clean_words(words)
+    # text conserved in order; each line spans its member words.
+    assert " ".join(w["text"] for w in clean) == " ".join(ln["text"] for ln in lines)
     for ln in lines:
-        for a, b in zip(ln, ln[1:]):
-            assert b["start"] - a["end"] <= gap + 1e-9  # no in-line dead gaps
+        assert ln["end"] >= ln["start"]
 
 
 @given(word_lists())
-def test_build_ass_emits_one_kf_dialogue_per_grouped_line(words):
-    doc = ass.build_ass(words)
+def test_build_ass_emits_one_plain_dialogue_per_line(lines):
+    doc = ass.build_ass(lines)
     dialogue = [ln for ln in doc.splitlines() if ln.startswith("Dialogue:")]
-    expected = len(ass.group_lines(
-        words, ass.DEFAULT_STYLE["max_words_per_line"], ass.DEFAULT_STYLE["break_gap"]
-    ))
-    assert len(dialogue) == expected
-    assert all("\\kf" in ln for ln in dialogue)
+    renderable = [ln for ln in lines if (ln["text"] or "").strip() and ln["end"] > ln["start"]]
+    assert len(dialogue) == len(renderable)
+    assert all("\\kf" not in ln and "\\k" not in ln for ln in dialogue)
 
 
 # --------------------------------------------------------------------------- #

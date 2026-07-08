@@ -346,43 +346,48 @@ def test_empty_build_is_exactly_the_golden_header():
     assert ass.build_ass([]) == GOLDEN_HEADER
 
 
+def _line(text: str, start: float, end: float) -> dict:
+    return {"text": text, "start": start, "end": end}
+
+
 def test_dialogue_line_is_pinned():
-    doc = ass.build_ass([_w("hello", 1.0, 1.5), _w("world", 2.2, 2.9)])
+    # Line window + 0.3 s tail, plain text, no fill tags.
+    doc = ass.build_ass([_line("hello world", 1.0, 2.9)])
     dialogue = [ln for ln in doc.splitlines() if ln.startswith("Dialogue:")]
-    assert dialogue == [
-        "Dialogue: 0,0:00:01.00,0:00:03.20,Default,,0,0,0,,"
-        "{\\kf50}hello {\\k70}{\\kf70}world"
-    ]
+    assert dialogue == ["Dialogue: 0,0:00:01.00,0:00:03.20,Default,,0,0,0,,hello world"]
+    assert "\\kf" not in doc and "\\k" not in doc
 
 
-def test_subcentisecond_word_gets_min_1cs_fill():
-    assert "{\\kf1}x" in ass.build_ass([_w("x", 1.0, 1.004)])
-
-
-def test_one_centisecond_gap_is_not_swallowed():
-    doc = ass.build_ass([_w("a", 1.0, 1.5), _w("b", 1.51, 2.0)])
-    assert "{\\k1}" in doc
-
-
-def test_unrenderable_token_does_not_stop_the_line():
-    doc = ass.build_ass([_w("ok", 1.0, 1.5), _w("\\", 1.6, 2.0), _w("yes", 2.1, 2.6)])
+def test_unrenderable_chars_are_sanitized_not_dropped():
+    doc = ass.build_ass([_line("ok \\ {yes}", 1.0, 2.0)])
     dialogue = [ln for ln in doc.splitlines() if ln.startswith("Dialogue:")]
-    assert "yes" in dialogue[0]
+    assert dialogue[0].endswith(",ok  (yes)")
 
 
-def test_default_line_packing_and_trailing_newline():
+def test_zero_width_line_is_skipped():
+    doc = ass.build_ass([_line("gone", 5.0, 5.0), _line("keep", 6.0, 7.0)])
+    dialogue = [ln for ln in doc.splitlines() if ln.startswith("Dialogue:")]
+    assert len(dialogue) == 1 and "keep" in dialogue[0]
+
+
+def test_build_ass_trailing_newline():
+    assert ass.build_ass([_line("a", 0.0, 1.0)]).endswith("\n")
+
+
+# words_to_lines packing (grouping moved from ass to core)
+
+def test_default_line_packing_at_8_words():
     words = [_w(f"w{i}", float(i), float(i) + 0.5) for i in range(9)]
-    doc = ass.build_ass(words)
-    dialogue = [ln for ln in doc.splitlines() if ln.startswith("Dialogue:")]
-    assert len(dialogue) == 2  # max_words_per_line defaults to 8
-    assert doc.endswith("\n")
+    lines = core.words_to_lines(words)
+    assert len(lines) == 2  # max_words defaults to 8
+    assert lines[0]["text"] == " ".join(f"w{i}" for i in range(8))
 
 
 def test_default_break_gap_is_1_5s():
-    doc = ass.build_ass([_w("a", 0.0, 0.5), _w("b", 2.1, 2.6)])  # gap 1.6 s
-    assert sum(ln.startswith("Dialogue:") for ln in doc.splitlines()) == 2
+    lines = core.words_to_lines([_w("a", 0.0, 0.5), _w("b", 2.1, 2.6)])  # gap 1.6 s
+    assert len(lines) == 2
 
 
 def test_gap_exactly_at_break_gap_does_not_break():
-    lines = ass.group_lines([_w("a", 0.0, 0.5), _w("b", 2.0, 2.5)], 8, 1.5)
+    lines = core.words_to_lines([_w("a", 0.0, 0.5), _w("b", 2.0, 2.5)])  # gap 1.5 s
     assert len(lines) == 1

@@ -16,7 +16,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from annemusic import ass, backends, core, vad
+from annemusic import ass, backends, core, lrclib, vad
 from annemusic.backends import log
 
 
@@ -41,35 +41,38 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="ISO language hint, case-insensitive; skips detection",
     )
     p.add_argument("--lyrics", help="known-lyrics text file to bias transcription")
+    p.add_argument("--artist", help="song artist, for LRCLIB synced-lyrics lookup")
+    p.add_argument("--title", help="song title, for LRCLIB synced-lyrics lookup")
+    p.add_argument(
+        "--no-lyrics-fetch",
+        action="store_true",
+        help="skip LRCLIB; always transcribe + align",
+    )
     p.add_argument("--force", action="store_true", help="overwrite existing artifacts")
     return p.parse_args(argv)
 
 
-def _preflight(args: argparse.Namespace) -> tuple[Path, str | None, Path]:
+def _preflight(args: argparse.Namespace) -> tuple[Path, Path]:
     """Validate inputs before any heavy work; raises _Preflight to refuse."""
     video = Path(args.video)
     if not video.is_file():
         raise _Preflight(2, f"input not found: {args.video}")
-    lyrics = None
-    if args.lyrics:
-        lyrics_path = Path(args.lyrics)
-        if not lyrics_path.is_file():
-            raise _Preflight(2, f"lyrics file not found: {args.lyrics}")
-        lyrics = lyrics_path.read_text(encoding="utf-8")
+    if args.lyrics and not Path(args.lyrics).is_file():
+        raise _Preflight(2, f"lyrics file not found: {args.lyrics}")
     out_dir = core.resolve_out_dir(args.video, args.out)
     if (out_dir / "manifest.json").exists() and not args.force:
         raise _Preflight(
             3,
             f"{out_dir / 'manifest.json'} already exists; pass --force to overwrite",
         )
-    return video, lyrics, out_dir
+    return video, out_dir
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
-        video, lyrics, out_dir = _preflight(args)
-        run(video, out_dir, args.language, lyrics)
+        video, out_dir = _preflight(args)
+        run(video, out_dir, args)
     except _Preflight as e:
         print(f"annemusic: {e}", file=sys.stderr)
         return e.code
@@ -81,9 +84,8 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def run(
-    video: Path, out_dir: Path, language_hint: str | None, lyrics: str | None
-) -> None:
+def run(video: Path, out_dir: Path, args: argparse.Namespace) -> None:
+    hint = args.language
     out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="annemusic-") as tmp_s:
         tmp = Path(tmp_s)
@@ -99,27 +101,39 @@ def run(
         shutil.copyfile(instrumental_src, out_dir / "instrumental.wav")
 
         vocal_activity = vad.detect(vocals)
-        language = language_hint or backends.detect_language(vocals, vocal_activity)
+        language = hint or backends.detect_language(vocals, vocal_activity)
 
-        log(f"transcribing (language={language or 'auto'})")
-        asr_language, segments = backends.transcribe(
-            mix=mix, vocals=vocals, language=language, lyrics=lyrics
-        )
+        # Synced-lyrics fast path: human LRC line times drive timing (words
+        # spread evenly within lines), skipping ASR + forced alignment.
+        lrc_lines = None
+        if args.artist and args.title and not args.no_lyrics_fetch:
+            log("looking up synced lyrics (LRCLIB)")
+            lrc_lines = lrclib.fetch(args.title, args.artist, duration)
 
-        log("aligning words")
-        words = _align(vocals, segments, vocal_activity, language or asr_language)
+        if lrc_lines:
+            source, lines, words = "lrclib", lrc_lines, core.even_words(lrc_lines)
+            log(f"synced lyrics: {len(lines)} lines")
+        else:
+            source = "asr"
+            log(f"transcribing (language={language or 'auto'})")
+            asr_language, segments = backends.transcribe(
+                mix=mix, vocals=vocals, language=language, lyrics=_lyrics_text(args)
+            )
+            language = hint or asr_language
+            log("aligning words")
+            words = _align(vocals, segments, vocal_activity, language)
+            lines = core.words_to_lines(words)
 
-    # A --language hint (lowercased at parse) wins; otherwise report what ASR saw.
-    manifest = core.build_manifest(
-        language_hint or asr_language, duration, words, vocal_activity
-    )
+    manifest = core.build_manifest(source, language, duration, words, vocal_activity)
     (out_dir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    (out_dir / "lyrics.ass").write_text(
-        ass.build_ass(manifest["words"]), encoding="utf-8"
-    )
-    log(f"done: {len(manifest['words'])} words -> {out_dir}")
+    (out_dir / "lyrics.ass").write_text(ass.build_ass(lines), encoding="utf-8")
+    log(f"done ({source}): {len(manifest['words'])} words -> {out_dir}")
+
+
+def _lyrics_text(args: argparse.Namespace) -> str | None:
+    return Path(args.lyrics).read_text(encoding="utf-8") if args.lyrics else None
 
 
 def _align(

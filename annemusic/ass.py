@@ -1,14 +1,12 @@
-"""Build an ASS subtitle file with \\kf karaoke-fill tags from word timings.
+"""Build an ASS subtitle file: one styled line shown during its window.
 
-Ported from stages/compose/src/ass.ts. Conventions:
-  PrimaryColour   = sung / highlight colour (after the \\kf sweep passes)
-  SecondaryColour = unsung / base colour (before the sweep)
+Line-level, no per-word colour-fill animation (even-distribution timing
+made the \\kf sweep fake precision — dropped). Takes pre-grouped lines
+[{text, start, end}]; word-level timing lives in manifest.json instead.
 ASS colour format is &HAABBGGRR.
 """
 
 from __future__ import annotations
-
-from annemusic.core import clean_words
 
 DEFAULT_STYLE = {
     "font": "Arial",
@@ -23,9 +21,7 @@ DEFAULT_STYLE = {
     "shadow": 2,
     "alignment": 2,          # ASS numpad; 2 = bottom-center
     "margin_v": 80,
-    "max_words_per_line": 8,
-    "break_gap": 1.5,        # seconds of silence that force a line break
-    "tail": 0.3,             # seconds a line lingers after its last word
+    "tail": 0.3,             # seconds a line lingers after its window
 }
 
 
@@ -44,40 +40,13 @@ def sanitize(text: str) -> str:
     )
 
 
-def group_lines(words: list[dict], max_words: int, break_gap: float) -> list[list[dict]]:
-    lines: list[list[dict]] = []
-    current: list[dict] = []
-    for w in words:
-        if current and (
-            w["start"] - current[-1]["end"] > break_gap or len(current) >= max_words
-        ):
-            lines.append(current)
-            current = []
-        current.append(w)
-    if current:
-        lines.append(current)
-    return lines
-
-
-def _render_line(line: list[dict], tail: float) -> str:
-    if not line:
+def _render_line(line: dict, tail: float) -> str:
+    text = sanitize(line.get("text") or "").strip()
+    if not text or line["end"] <= line["start"]:
         return ""
-    t0 = line[0]["start"]
-    t1 = line[-1]["end"] + tail
-    parts: list[str] = []
-    prev_end = t0
-    for w in line:
-        gap_cs = max(0, round((w["start"] - prev_end) * 100))
-        if gap_cs > 0:
-            parts.append(f"{{\\k{gap_cs}}}")
-        dur_cs = max(1, round((w["end"] - w["start"]) * 100))
-        tok = sanitize(w["text"]).strip()
-        if not tok:
-            continue
-        parts.append(f"{{\\kf{dur_cs}}}{tok} ")
-        prev_end = w["end"]
-    text = "".join(parts).rstrip()
-    return f"Dialogue: 0,{fmt_time(t0)},{fmt_time(t1)},Default,,0,0,0,,{text}"
+    t0 = fmt_time(line["start"])
+    t1 = fmt_time(line["end"] + tail)
+    return f"Dialogue: 0,{t0},{t1},Default,,0,0,0,,{text}"
 
 
 def _header(s: dict) -> str:
@@ -103,13 +72,8 @@ def _header(s: dict) -> str:
     )
 
 
-def _events(lines: list[list[dict]], tail: float) -> list[str]:
-    return [ev for ev in (_render_line(ln, tail) for ln in lines) if ev]
-
-
-def build_ass(words: list[dict], style: dict | None = None) -> str:
+def build_ass(lines: list[dict], style: dict | None = None) -> str:
+    """lines: [{text, start, end}] — one Dialogue event each."""
     s = {**DEFAULT_STYLE, **(style or {})}
-    cleaned = clean_words(words)  # one definition of word validity (core's)
-    lines = group_lines(cleaned, s["max_words_per_line"], s["break_gap"])
-    events = _events(lines, s["tail"])
+    events = [ev for ev in (_render_line(ln, s["tail"]) for ln in lines) if ev]
     return _header(s) + ("\n".join(events) + "\n" if events else "")

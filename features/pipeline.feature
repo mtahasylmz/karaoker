@@ -79,7 +79,8 @@ Feature: pipeline
     Then the exit code is 0
     And "out/manifest.json" field "source" equals "lrclib"
     And "out/manifest.json" has non-empty "words"
-    And word starts are non-decreasing and every word lies within [0, duration]
+    And word starts are non-decreasing
+    And every word lies within [0, duration]
     And "out/lyrics.ass" has at least 10 timed Dialogue lines (one per lyric line, no \kf tags)
 
   Scenario: pipeline-11 unmatched song falls back to ASR, still succeeds

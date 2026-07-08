@@ -294,8 +294,9 @@ def test_synthesize_skips_empty_and_degenerate():
 
 
 def test_manifest_has_exactly_the_spec_keys():
-    m = build_manifest("tr", 240.0, [_item("a", 1.0, 2.0)], [_vox(0.0, 240.0)])
-    assert set(m) == {"language", "duration", "words", "vocal_activity"}
+    m = build_manifest("asr", "tr", 240.0, [_item("a", 1.0, 2.0)], [_vox(0.0, 240.0)])
+    assert set(m) == {"source", "language", "duration", "words", "vocal_activity"}
+    assert m["source"] == "asr"
     assert m["language"] == "tr"
     assert m["duration"] == 240.0
 
@@ -306,7 +307,7 @@ def test_manifest_drops_degenerate_words():
         _item("", 2.0, 3.0),          # empty text
         _item("backwards", 5.0, 5.0),  # zero length
     ]
-    m = build_manifest("en", 10.0, words, [])
+    m = build_manifest("lrclib", "en", 10.0, words, [])
     assert [w["text"] for w in m["words"]] == ["good"]
 
 
