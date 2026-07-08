@@ -16,14 +16,10 @@ import numpy as np
 import pytest
 
 from annemusic import ass, backends, core, vad
-from annemusic.core import (
-    SanityError,
-    plan_chunks,
-    repair_words,
-    split_at_vad_breaks,
-    synthesize_words,
-)
+from annemusic.chunks import plan_chunks, split_at_vad_breaks
+from annemusic.core import synthesize_words
 from annemusic.lines import words_to_lines
+from annemusic.repair import SanityError, repair_words
 
 
 def _seg(start: float, end: float, text: str = "x") -> dict:
@@ -65,11 +61,11 @@ def test_iso_name_map_covers_exactly_the_routed_languages():
 
 
 def test_qwen_chunk_target_env_knob():
-    # Subprocess, not importlib.reload: reloading core in-process would swap
-    # class identities (SanityError) under every later test in the session.
+    # Subprocess, not importlib.reload: reloading modules in-process would
+    # swap class identities under every later test in the session.
     proc = subprocess.run(
         [sys.executable, "-c",
-         "import annemusic.core as c; assert c.QWEN_TARGET_SECONDS == 90.0"],
+         "import annemusic.chunks as c; assert c.QWEN_TARGET_SECONDS == 90.0"],
         env={**os.environ, "QWEN_CHUNK_TARGET_S": "90"},
         capture_output=True,
     )

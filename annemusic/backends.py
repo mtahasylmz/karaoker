@@ -14,7 +14,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from annemusic import core
+from annemusic import core, repair
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKER_DIR = REPO_ROOT / "workers" / "whisperx"
@@ -358,14 +358,14 @@ def _load_audio_16k(path: Path):
 
 def align_qwen3(vocals: Path, chunk: list[dict], language: str) -> list[dict]:
     """Forced-align one chunk via Qwen3-ForcedAligner (CUDA). Slices the
-    audio to the chunk window, aligns, then repairs via core.repair_words
-    (raises core.SanityError on systemic garbage — caller falls back)."""
+    audio to the chunk window, aligns, then repairs via repair.repair_words
+    (raises repair.SanityError on systemic garbage — caller falls back)."""
     import soundfile as sf  # lazy
 
     global _qwen_aligner
     lang_name = ISO_TO_QWEN.get(language.lower())
     if lang_name is None or not chunk:
-        raise core.SanityError(f"qwen3 aligner unavailable for language={language!r}")
+        raise repair.SanityError(f"qwen3 aligner unavailable for language={language!r}")
     text = " ".join(
         t for t in ((seg.get("text") or "").strip() for seg in chunk) if t
     )
@@ -378,7 +378,7 @@ def align_qwen3(vocals: Path, chunk: list[dict], language: str) -> list[dict]:
     s = max(0, int(chunk_start * 16000))
     e = min(len(audio), int(chunk_end * 16000))
     if e <= s:
-        raise core.SanityError(f"empty chunk window [{s}, {e})")
+        raise repair.SanityError(f"empty chunk window [{s}, {e})")
 
     if _qwen_aligner is None:
         import torch
@@ -397,7 +397,7 @@ def align_qwen3(vocals: Path, chunk: list[dict], language: str) -> list[dict]:
     finally:
         os.unlink(slice_path)
     if not results:
-        raise core.SanityError("qwen3 aligner returned no results")
+        raise repair.SanityError("qwen3 aligner returned no results")
     items = [
         {
             "text": getattr(it, "text", None),
@@ -406,7 +406,7 @@ def align_qwen3(vocals: Path, chunk: list[dict], language: str) -> list[dict]:
         }
         for it in results[0]
     ]
-    return core.repair_words(items, chunk_start, chunk_end)
+    return repair.repair_words(items, chunk_start, chunk_end)
 
 
 def align_whisperx(vocals: Path, segments: list[dict], language: str) -> list[dict]:

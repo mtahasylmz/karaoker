@@ -13,7 +13,7 @@ import numpy as np
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from annemusic import ass, core, lrclib, vad
+from annemusic import ass, chunks, core, lrclib, repair, vad
 from annemusic.lines import words_to_lines
 
 # --------------------------------------------------------------------------- #
@@ -110,7 +110,7 @@ def lyric_word_lists(draw) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
-# core: chunk planning
+# chunks: chunk planning
 # --------------------------------------------------------------------------- #
 
 
@@ -118,18 +118,18 @@ def lyric_word_lists(draw) -> list[dict]:
 def test_plan_chunks_conserves_segments_and_respects_target(
     segs, va, max_s, target_s
 ):
-    chunks = core.plan_chunks(segs, va, max_seconds=max_s, target_seconds=target_s)
-    assert [s for c in chunks for s in c] == segs  # conservation, in order
-    assert all(chunks)  # no empty chunk
+    planned = chunks.plan_chunks(segs, va, max_seconds=max_s, target_seconds=target_s)
+    assert [s for c in planned for s in c] == segs  # conservation, in order
+    assert all(planned)  # no empty chunk
     target = min(target_s, max_s)
-    for c in chunks:
+    for c in planned:
         window = c[-1]["end"] - c[0]["start"]
         assert window <= target or len(c) == 1  # only a lone segment may exceed
 
 
 @given(segment_lists(), activities())
 def test_split_at_vad_breaks_conserves_words(segs, va):
-    out = core.split_at_vad_breaks(segs, va)
+    out = chunks.split_at_vad_breaks(segs, va)
     original = " ".join(s["text"] for s in segs).split()
     assert " ".join(s["text"] for s in out).split() == original
     for s in out:
@@ -137,7 +137,7 @@ def test_split_at_vad_breaks_conserves_words(segs, va):
 
 
 # --------------------------------------------------------------------------- #
-# core: repair policy — repaired output is sane or the chunk is rejected
+# repair: repair policy — repaired output is sane or the chunk is rejected
 # --------------------------------------------------------------------------- #
 
 
@@ -145,8 +145,8 @@ def test_split_at_vad_breaks_conserves_words(segs, va):
 def test_repair_words_output_is_sane_or_rejected(items, chunk_start, chunk_len):
     chunk_end = chunk_start + chunk_len
     try:
-        words = core.repair_words(items, chunk_start, chunk_end)
-    except core.SanityError:
+        words = repair.repair_words(items, chunk_start, chunk_end)
+    except repair.SanityError:
         return  # rejection is a legal outcome
     assert words
     lo, hi = chunk_start - 0.05, chunk_end + 0.05
@@ -155,7 +155,7 @@ def test_repair_words_output_is_sane_or_rejected(items, chunk_start, chunk_len):
     for w in words:
         assert lo <= w["start"] <= hi
         assert w["start"] <= w["end"] <= hi
-        assert w["end"] - w["start"] <= core.MAX_WORD_SPAN_S + 1e-9
+        assert w["end"] - w["start"] <= repair.MAX_WORD_SPAN_S + 1e-9
 
 
 @given(segment_lists())
@@ -212,8 +212,8 @@ def test_even_words_conserves_tokens_and_stays_positive_and_in_window(lines):
 
 @given(word_lists())
 def test_clean_words_is_idempotent(words):
-    once = core.clean_words(words)
-    assert core.clean_words(once) == once
+    once = repair.clean_words(words)
+    assert repair.clean_words(once) == once
 
 
 @given(st.text(alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
@@ -250,7 +250,7 @@ def _strip_and_case(seq: str) -> str:
 @given(word_lists())
 def test_words_to_lines_conserves_words_and_bounds(words):
     lines = words_to_lines(words)
-    clean = core.clean_words(words)
+    clean = repair.clean_words(words)
     # Words are conserved IN ORDER, modulo line-final ,/. stripping and
     # first-letter capitalization (the segmentation contract changed with
     # pipeline-13: text is no longer verbatim word concatenation).
