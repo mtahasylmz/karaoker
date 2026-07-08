@@ -34,7 +34,7 @@ def fetch(
     synced = body.get("syncedLyrics")
     if not synced:
         return None
-    lines = list(_parse_lrc(synced))
+    lines = list(parse_lrc(synced))
     return lines or None
 
 
@@ -61,17 +61,22 @@ def _get(title: str, artist: str, duration_s: float | None, timeout: float) -> d
 _TS_RE = re.compile(r"^\[(\d+):(\d+)(?:\.(\d+))?\]\s*(.*)$")
 
 
-def _parse_lrc(lrc: str) -> Iterable[dict]:
+def _parse_row(raw: str) -> tuple[float, str] | None:
+    """One '[mm:ss.xx] text' line -> (start_seconds, text), or None if it has
+    no leading timestamp."""
+    m = _TS_RE.match(raw.strip())
+    if not m:
+        return None
+    mm, ss, cs, text = m.groups()
+    frac = int(cs) / 10 ** len(cs) if cs else 0.0
+    return int(mm) * 60 + int(ss) + frac, text.strip()
+
+
+def parse_lrc(lrc: str) -> Iterable[dict]:
     """'[mm:ss.xx] line' -> {text, start, end}. End of line N = start of
-    N+1 (gapless); last line gets a +3 s tail."""
-    rows: list[tuple[float, str]] = []
-    for raw in lrc.splitlines():
-        m = _TS_RE.match(raw.strip())
-        if not m:
-            continue
-        mm, ss, cs, text = m.groups()
-        start = int(mm) * 60 + int(ss) + (int(cs) / 10 ** len(cs) if cs else 0.0)
-        rows.append((start, text.strip()))
+    N+1 (gapless); last line gets a +3 s tail. Shared by synced.py (the
+    secondary-provider adapter) — one LRC parser, one place."""
+    rows = [r for r in map(_parse_row, lrc.splitlines()) if r is not None]
     rows.sort(key=lambda r: r[0])
     for i, (start, text) in enumerate(rows):
         end = rows[i + 1][0] if i + 1 < len(rows) else start + 3.0

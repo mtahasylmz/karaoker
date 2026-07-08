@@ -10,6 +10,7 @@ dependencies = [
     "numpy<2",
     "soundfile>=0.12",
     "torchcodec",
+    "syncedlyrics>=1.0.1",
 ]
 
 [project.scripts]
@@ -39,7 +40,7 @@ python_files = ["*_test.py", "test_*.py"]
 omit = ["annemusic/*_test.py", "annemusic/*_prop.py"]
 
 [tool.mutmut]
-paths_to_mutate = "annemusic/core.py,annemusic/vad.py,annemusic/ass.py"
+paths_to_mutate = "annemusic/core.py,annemusic/lines.py,annemusic/vad.py,annemusic/ass.py"
 # Direct pytest, NEVER `uv run pytest`: mutmut's timeout kills only the
 # runner process, and an orphaned pytest child keeps the stdout pipe open —
 # every infinite-loop mutant then stalls the whole run (the "146 untested").

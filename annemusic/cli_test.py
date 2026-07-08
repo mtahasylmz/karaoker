@@ -10,6 +10,17 @@ import pytest
 from annemusic import backends, cli, core, vad
 
 
+def _boom(msg: str):
+    """A stand-in callable that fails if invoked — pins 'this seam must NOT be
+    called on this path' (e.g. LRCLIB/synced must not run under --no-lyrics-fetch
+    or after an earlier provider hit)."""
+
+    def _fail(*_args, **_kwargs):
+        raise AssertionError(msg)
+
+    return _fail
+
+
 @pytest.fixture()
 def fake_pipeline(monkeypatch, tmp_path):
     """Stub every environment-touching seam; record calls for asserts."""
@@ -92,12 +103,80 @@ def test_lrclib_hit_uses_synced_lyrics(fake_pipeline, monkeypatch):
     assert [w["text"] for w in manifest["words"][:3]] == ["line", "one", "here"]
 
 
+def test_synced_secondary_hit_sets_provider_source(fake_pipeline, monkeypatch):
+    # LRCLIB misses; a secondary provider (via synced.fetch) hits. The provider
+    # name becomes manifest.source and ASR is skipped.
+    tmp = fake_pipeline["tmp"]
+    from annemusic import lrclib, synced
+
+    monkeypatch.setattr(lrclib, "fetch", lambda title, artist, dur: None)
+    monkeypatch.setattr(
+        synced, "fetch",
+        lambda title, artist, dur: ("musixmatch", [
+            {"text": "secondary line here", "start": 5.0, "end": 8.0},
+        ]),
+    )
+    rc = cli.main([str(fake_pipeline["video"]), "-o", str(tmp / "out"),
+                   "--artist", "X", "--title", "Y"])
+    assert rc == 0
+    manifest = json.loads((tmp / "out" / "manifest.json").read_text())
+    assert manifest["source"] == "musixmatch"
+    assert "transcribe" not in fake_pipeline["calls"]  # ASR skipped
+    assert [w["text"] for w in manifest["words"][:3]] == ["secondary", "line", "here"]
+
+
+def test_synced_miss_falls_through_to_asr(fake_pipeline, monkeypatch):
+    # Both LRCLIB and the secondary providers miss -> ASR path, source "asr".
+    tmp = fake_pipeline["tmp"]
+    from annemusic import lrclib, synced
+
+    monkeypatch.setattr(lrclib, "fetch", lambda title, artist, dur: None)
+    monkeypatch.setattr(synced, "fetch", lambda title, artist, dur: None)
+    rc = cli.main([str(fake_pipeline["video"]), "-o", str(tmp / "out"),
+                   "--artist", "X", "--title", "Y"])
+    assert rc == 0
+    manifest = json.loads((tmp / "out" / "manifest.json").read_text())
+    assert manifest["source"] == "asr"
+    assert "transcribe" in fake_pipeline["calls"]  # ASR ran
+
+
+def test_lrclib_hit_skips_secondary_providers(fake_pipeline, monkeypatch):
+    # LRCLIB is tried FIRST; on a hit, synced.fetch must not be called.
+    tmp = fake_pipeline["tmp"]
+    from annemusic import lrclib, synced
+
+    monkeypatch.setattr(
+        lrclib, "fetch",
+        lambda title, artist, dur: [{"text": "lrc line", "start": 1.0, "end": 2.0}],
+    )
+    monkeypatch.setattr(synced, "fetch",
+                        _boom("synced.fetch must not run when LRCLIB hits"))
+    rc = cli.main([str(fake_pipeline["video"]), "-o", str(tmp / "out"),
+                   "--artist", "X", "--title", "Y"])
+    assert rc == 0
+    manifest = json.loads((tmp / "out" / "manifest.json").read_text())
+    assert manifest["source"] == "lrclib"
+
+
+def test_no_lyrics_fetch_skips_secondary_providers(fake_pipeline, monkeypatch):
+    # --no-lyrics-fetch must bypass BOTH LRCLIB and the secondary providers.
+    tmp = fake_pipeline["tmp"]
+    from annemusic import lrclib, synced
+
+    monkeypatch.setattr(lrclib, "fetch", _boom("lrclib.fetch must not run"))
+    monkeypatch.setattr(synced, "fetch", _boom("synced.fetch must not run"))
+    rc = cli.main([str(fake_pipeline["video"]), "-o", str(tmp / "out"),
+                   "--artist", "X", "--title", "Y", "--no-lyrics-fetch"])
+    assert rc == 0
+    manifest = json.loads((tmp / "out" / "manifest.json").read_text())
+    assert manifest["source"] == "asr"
+
+
 def test_no_lyrics_fetch_forces_asr(fake_pipeline, monkeypatch):
     tmp = fake_pipeline["tmp"]
     from annemusic import lrclib
 
-    monkeypatch.setattr(lrclib, "fetch", lambda *a: (_ for _ in ()).throw(
-        AssertionError("fetch must not be called")))
+    monkeypatch.setattr(lrclib, "fetch", _boom("fetch must not be called"))
     rc = cli.main([str(fake_pipeline["video"]), "-o", str(tmp / "out"),
                    "--artist", "X", "--title", "Y", "--no-lyrics-fetch"])
     assert rc == 0

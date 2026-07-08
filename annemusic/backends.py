@@ -282,15 +282,26 @@ def _transcribe_qwen3(
     return detected_iso, segments
 
 
+# Hallucination-hardening thresholds for the whisper fallback (sung audio is
+# noisy; these drop the two dominant failure modes).
+_WHISPER_NO_SPEECH_MAX = 0.9    # drop segments the model itself flags as silence
+_WHISPER_CHAR_RATE_MAX = 37.5   # drop garbled dense runs (chars per second)
+
+
 def _transcribe_whisper(
     vocals: Path, language: str | None, lyrics: str | None
 ) -> tuple[str, list[dict]]:
     model = _load_whisper()
+    # Always seed "lyrics:"; prepend known-lyrics bias when present (clamped).
+    initial_prompt = ("lyrics: " + lyrics[:200]) if lyrics else "lyrics:"
     kwargs = dict(
         vad_filter=True,
         beam_size=5,
         word_timestamps=False,
-        initial_prompt=(lyrics[:200] if lyrics else None),
+        # Repetitive sung lines hallucinate cascades when each segment is
+        # conditioned on the previous one; disable the carry-over.
+        condition_on_previous_text=False,
+        initial_prompt=initial_prompt,
     )
     try:
         segments_iter, info = model.transcribe(
@@ -308,6 +319,10 @@ def _transcribe_whisper(
         text = (seg.text or "").strip()
         if not text or seg.end <= seg.start:
             continue
+        if getattr(seg, "no_speech_prob", 0.0) > _WHISPER_NO_SPEECH_MAX:
+            continue  # the model says this window is silence
+        if len(text) / (seg.end - seg.start) > _WHISPER_CHAR_RATE_MAX:
+            continue  # implausibly dense text: garbled hallucination
         segments.append({"text": text, "start": float(seg.start), "end": float(seg.end)})
     return info.language, segments
 

@@ -3,7 +3,7 @@
     annemusic video.mp4 [-o OUT] [--language LANG] [--lyrics FILE] [--force]
 
 Artifacts written to OUT (default ./<video-stem>/): instrumental.wav,
-vocals.wav, lyrics.ass (per-word \\kf karaoke), manifest.json.
+vocals.wav, lyrics.ass (line-timed subtitles), manifest.json.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from annemusic import ass, backends, core, lrclib, vad
+from annemusic import ass, backends, core, lines, lrclib, synced, vad
 from annemusic.backends import log
 
 
@@ -31,7 +31,7 @@ class _Preflight(Exception):
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="annemusic",
-        description="Music video in -> instrumental + per-word karaoke subtitles out.",
+        description="Music video in -> instrumental + line-timed karaoke subtitles out.",
     )
     p.add_argument("video", help="input music video (mp4/mov/webm/mkv)")
     p.add_argument("-o", "--out", help="output directory (default: ./<video-stem>/)")
@@ -103,18 +103,11 @@ def run(video: Path, out_dir: Path, args: argparse.Namespace) -> None:
         vocal_activity = vad.detect(vocals)
         language = hint or backends.detect_language(vocals, vocal_activity)
 
-        # Synced-lyrics fast path: human LRC line times drive timing (words
-        # spread evenly within lines), skipping ASR + forced alignment.
-        lrc_lines = None
-        if args.artist and args.title and not args.no_lyrics_fetch:
-            log("looking up synced lyrics (LRCLIB)")
-            lrc_lines = lrclib.fetch(args.title, args.artist, duration)
-
+        source, lrc_lines = _resolve_synced(args, duration)
         if lrc_lines:
-            source, lines, words = "lrclib", lrc_lines, core.even_words(lrc_lines)
-            log(f"synced lyrics: {len(lines)} lines")
+            display_lines, words = lrc_lines, core.even_words(lrc_lines)
+            log(f"synced lyrics ({source}): {len(display_lines)} lines")
         else:
-            source = "asr"
             log(f"transcribing (language={language or 'auto'})")
             asr_language, segments = backends.transcribe(
                 mix=mix, vocals=vocals, language=language, lyrics=_lyrics_text(args)
@@ -122,14 +115,37 @@ def run(video: Path, out_dir: Path, args: argparse.Namespace) -> None:
             language = hint or asr_language
             log("aligning words")
             words = _align(vocals, segments, vocal_activity, language)
-            lines = core.words_to_lines(words)
+            display_lines = lines.words_to_lines(words)
 
     manifest = core.build_manifest(source, language, duration, words, vocal_activity)
+    _write_artifacts(out_dir, manifest, display_lines)
+    log(f"done ({source}): {len(manifest['words'])} words -> {out_dir}")
+
+
+def _resolve_synced(
+    args: argparse.Namespace, duration: float
+) -> tuple[str, list[dict] | None]:
+    """Synced-lyrics fast path: human LRC line times drive timing (words spread
+    evenly within lines), skipping ASR + forced alignment. LRCLIB is tried
+    first; on a miss, secondary providers (syncedlyrics) are tried before
+    falling back to ASR. Returns (manifest source, lines-or-None); the source
+    names the provider that hit, or "asr" when none did."""
+    if not (args.artist and args.title) or args.no_lyrics_fetch:
+        return "asr", None
+    log("looking up synced lyrics (LRCLIB)")
+    lrc_lines = lrclib.fetch(args.title, args.artist, duration)
+    if lrc_lines:
+        return "lrclib", lrc_lines
+    log("LRCLIB miss; trying secondary synced providers")
+    hit = synced.fetch(args.title, args.artist, duration)
+    return hit if hit else ("asr", None)
+
+
+def _write_artifacts(out_dir: Path, manifest: dict, display_lines: list[dict]) -> None:
     (out_dir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    (out_dir / "lyrics.ass").write_text(ass.build_ass(lines), encoding="utf-8")
-    log(f"done ({source}): {len(manifest['words'])} words -> {out_dir}")
+    (out_dir / "lyrics.ass").write_text(ass.build_ass(display_lines), encoding="utf-8")
 
 
 def _lyrics_text(args: argparse.Namespace) -> str | None:

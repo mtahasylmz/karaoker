@@ -13,7 +13,8 @@ import numpy as np
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from annemusic import ass, core, vad
+from annemusic import ass, core, lrclib, vad
+from annemusic.lines import words_to_lines
 
 # --------------------------------------------------------------------------- #
 # strategies
@@ -86,6 +87,28 @@ def word_lists(draw) -> list[dict]:
     return words
 
 
+# Word text with karaoke-relevant punctuation woven in, for the line-convention
+# property: some words end in sentence/clause marks, some are plain.
+_LYRIC_TOKENS = st.sampled_from(
+    ["hello", "world", "stay.", "wait,", "why?", "go!", "away…", "night", "Mr.",
+     "iPhone", "99", "the", "dark", "line;", "here:"]
+)
+
+
+@st.composite
+def lyric_word_lists(draw) -> list[dict]:
+    """Ordered words drawn from punctuated lyric tokens (for words_to_lines)."""
+    n = draw(st.integers(0, 30))
+    t = 0.0
+    words = []
+    for _ in range(n):
+        start = t + draw(st.floats(0, 3))
+        end = start + draw(st.floats(0.02, 6))
+        words.append({"text": draw(_LYRIC_TOKENS), "start": start, "end": end})
+        t = end
+    return words
+
+
 # --------------------------------------------------------------------------- #
 # core: chunk planning
 # --------------------------------------------------------------------------- #
@@ -144,6 +167,49 @@ def test_synthesize_words_conserves_tokens_in_order(segs):
     assert all(w["end"] > w["start"] for w in words)
 
 
+@st.composite
+def lrc_line_lists(draw) -> list[dict]:
+    """LRC lines with human timestamps — zero-width windows allowed (a mark
+    can repeat), which is exactly where even_words must still emit words."""
+    n = draw(st.integers(0, 12))
+    t = 0.0
+    lines = []
+    for i in range(n):
+        start = t + draw(st.floats(0, 5))
+        end = start + draw(st.floats(0, 6))  # 0 allowed: zero-width LRC window
+        n_words = draw(st.integers(0, 5))
+        lines.append({
+            "text": " ".join(f"l{i}t{j}" for j in range(n_words)),
+            "start": start,
+            "end": end,
+        })
+        t = end
+    return lines
+
+
+@given(lrc_line_lists())
+def test_even_words_conserves_tokens_and_stays_positive_and_in_window(lines):
+    words = core.even_words(lines)
+    # Conservation, in order: every LRC token becomes exactly one word.
+    assert [w["text"] for w in words] == " ".join(l["text"] for l in lines).split()
+    # The step floor guarantees a strictly positive span for every word, even
+    # when the LRC window has zero width (start == end).
+    assert all(w["end"] > w["start"] for w in words)
+    # Attribute words to lines by index (each line contributes its token count)
+    # and check each word starts at/after its own line's start; within a line
+    # starts strictly increase.
+    idx = 0
+    for ln in lines:
+        n = len((ln.get("text") or "").split())
+        group = words[idx:idx + n]
+        idx += n
+        s = float(ln["start"])
+        assert all(w["start"] >= s - 1e-9 for w in group)
+        starts = [w["start"] for w in group]
+        assert starts == sorted(starts)
+    assert idx == len(words)  # exact partition, no words unaccounted for
+
+
 @given(word_lists())
 def test_clean_words_is_idempotent(words):
     once = core.clean_words(words)
@@ -174,14 +240,36 @@ def test_fmt_time_parses_back_to_the_same_centiseconds(t):
     assert ((h * 60 + mi) * 60 + sec) * 100 + cs == max(0, round(t * 100))
 
 
-@given(word_lists(), st.integers(1, 10), st.floats(0.1, 5))
-def test_words_to_lines_conserves_words_and_bounds(words, max_words, gap):
-    lines = core.words_to_lines(words, max_words, gap)
+def _strip_and_case(seq: str) -> str:
+    """Normalize a word sequence the way words_to_lines does line-finally:
+    drop line-final commas/periods and first-letter capitalization, so raw
+    input and line output become comparable."""
+    return re.sub(r"[.,]+(?=\s|$)", "", seq).casefold()
+
+
+@given(word_lists())
+def test_words_to_lines_conserves_words_and_bounds(words):
+    lines = words_to_lines(words)
     clean = core.clean_words(words)
-    # text conserved in order; each line spans its member words.
-    assert " ".join(w["text"] for w in clean) == " ".join(ln["text"] for ln in lines)
+    # Words are conserved IN ORDER, modulo line-final ,/. stripping and
+    # first-letter capitalization (the segmentation contract changed with
+    # pipeline-13: text is no longer verbatim word concatenation).
+    src = _strip_and_case(" ".join(w["text"] for w in clean))
+    out = _strip_and_case(" ".join(ln["text"] for ln in lines))
+    assert src == out
     for ln in lines:
         assert ln["end"] >= ln["start"]
+
+
+@given(lyric_word_lists())
+def test_words_to_lines_obeys_lyric_conventions(words):
+    # pipeline-13 at unit speed: no line ends in ',' or '.', and every
+    # non-empty line starts with an uppercase letter or a digit.
+    for ln in words_to_lines(words):
+        text = ln["text"]
+        assert not text.endswith((",", ".")), text
+        if text:
+            assert text[0].isupper() or text[0].isdigit(), text
 
 
 @given(word_lists())
@@ -229,3 +317,38 @@ def test_detect_regions_partition_the_audio(n, seed):
     for r in regions:
         assert r["end"] >= r["start"]
         assert r["kind"] in ("vocals", "instrumental")
+
+
+# --------------------------------------------------------------------------- #
+# lrclib.parse_lrc: parsing stability — sorted, gapless, positive-span output
+# --------------------------------------------------------------------------- #
+
+
+@st.composite
+def lrc_text(draw) -> str:
+    """A raw LRC blob: timestamped lines (some out of order, some blank-text,
+    some untimed junk) that parse_lrc must normalize."""
+    parts = []
+    for _ in range(draw(st.integers(0, 10))):
+        mm = draw(st.integers(0, 99))
+        ss = draw(st.integers(0, 59))
+        cs = draw(st.integers(0, 99))
+        text = draw(st.text(alphabet="abc def", min_size=0, max_size=8))
+        parts.append(f"[{mm:02d}:{ss:02d}.{cs:02d}]{text}")
+    if draw(st.booleans()):
+        parts.append("a line with no timestamp at all")
+    draw(st.randoms()).shuffle(parts)
+    return "\n".join(parts)
+
+
+@given(lrc_text())
+def test_parse_lrc_is_sorted_gapless_and_nonneg(blob):
+    out = list(lrclib.parse_lrc(blob))
+    starts = [r["start"] for r in out]
+    assert starts == sorted(starts)                  # sorted by start
+    assert all(r["text"].strip() for r in out)       # no blank-text lines
+    assert all(r["end"] >= r["start"] for r in out)  # non-negative spans
+    # A line never overruns the next line's start (ends are clamped to the next
+    # timestamp; the final line gets a +3 s tail with nothing after it).
+    for a, b in zip(out, out[1:]):
+        assert a["end"] <= b["start"] + 1e-9

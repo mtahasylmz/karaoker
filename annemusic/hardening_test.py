@@ -23,6 +23,7 @@ from annemusic.core import (
     split_at_vad_breaks,
     synthesize_words,
 )
+from annemusic.lines import words_to_lines
 
 
 def _seg(start: float, end: float, text: str = "x") -> dict:
@@ -374,20 +375,33 @@ def test_build_ass_trailing_newline():
     assert ass.build_ass([_line("a", 0.0, 1.0)]).endswith("\n")
 
 
-# words_to_lines packing (grouping moved from ass to core)
-
-def test_default_line_packing_at_8_words():
-    words = [_w(f"w{i}", float(i), float(i) + 0.5) for i in range(9)]
-    lines = core.words_to_lines(words)
-    assert len(lines) == 2  # max_words defaults to 8
-    assert lines[0]["text"] == " ".join(f"w{i}" for i in range(8))
+# words_to_lines: punctuation-first ASR line segmentation (pipeline-13).
+# The old 8-word / 1.5 s packer is gone; the ladder is
+# sentence-punct -> clause-punct -> >=1 s gap -> ~42-char soft cap.
 
 
-def test_default_break_gap_is_1_5s():
-    lines = core.words_to_lines([_w("a", 0.0, 0.5), _w("b", 2.1, 2.6)])  # gap 1.6 s
-    assert len(lines) == 2
-
-
-def test_gap_exactly_at_break_gap_does_not_break():
-    lines = core.words_to_lines([_w("a", 0.0, 0.5), _w("b", 2.0, 2.5)])  # gap 1.5 s
+def test_no_break_on_word_count_alone():
+    # Many short, unpunctuated, gapless words that fit under the char cap stay
+    # on ONE line: there is no word cap. 20 one-char words + spaces = 39 chars.
+    words = [_w("x", i * 0.1, i * 0.1 + 0.05) for i in range(20)]
+    lines = words_to_lines(words)
     assert len(lines) == 1
+
+
+def test_break_gap_boundary_is_exactly_one_second():
+    # 1.0 s gap breaks (>=); 0.99 s does not.
+    assert len(words_to_lines([_w("a", 0.0, 0.5), _w("b", 1.5, 2.0)])) == 2
+    assert len(words_to_lines([_w("a", 0.0, 0.5), _w("b", 1.49, 2.0)])) == 1
+
+
+def test_sentence_punct_outranks_the_gap_and_cap():
+    # A period ends the line even with no gap and a tiny char count.
+    lines = words_to_lines([_w("Go.", 0.0, 0.5), _w("Now", 0.6, 1.0)])
+    assert [ln["text"] for ln in lines] == ["Go", "Now"]
+
+
+def test_soft_char_cap_breaks_only_as_last_resort():
+    # 8 x 6-char gapless unpunctuated words (~55 chars) must break at the cap.
+    words = [_w("abcdef", i * 0.1, i * 0.1 + 0.05) for i in range(8)]
+    lines = words_to_lines(words)
+    assert len(lines) >= 2

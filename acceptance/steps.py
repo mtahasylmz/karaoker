@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -120,6 +121,46 @@ def given_already_exists(ctx, rel):
     ctx.setdefault("pre_files", []).append(rel)
 
 
+# --- pipeline-14: secondary synced providers -------------------------------- #
+
+@step(r"a song that LRCLIB misses but a secondary provider has synced")
+def given_secondary_provider_song(ctx):
+    # Optional and network-dependent: skip politely unless an alt song is
+    # configured (env ANNEMUSIC_ALT_ARTIST/ANNEMUSIC_ALT_TITLE), the fixture
+    # exists, and we can reach the network.
+    artist = os.environ.get("ANNEMUSIC_ALT_ARTIST")
+    title = os.environ.get("ANNEMUSIC_ALT_TITLE")
+    if not (artist and title):
+        pytest.skip("ANNEMUSIC_ALT_ARTIST/ANNEMUSIC_ALT_TITLE not set")
+    fx = runtime.fixture()
+    if fx is None or not fx.exists():
+        pytest.skip("ANNEMUSIC_FIXTURE not set or missing")
+    if not _online():
+        pytest.skip("offline: cannot reach secondary synced providers")
+    ctx["alt_artist"], ctx["alt_title"] = artist, title
+
+
+@step(r"the pipeline runs for it with --artist and --title")
+def when_pipeline_runs_for_alt_song(ctx):
+    # Audio is still the fixture; only the metadata routes the lyrics lookup.
+    cmd = (
+        f"annemusic $ANNEMUSIC_FIXTURE -o out "
+        f"--artist {shlex.quote(ctx['alt_artist'])} "
+        f"--title {shlex.quote(ctx['alt_title'])}"
+    )
+    ctx["result"] = runtime.run_cli(cmd)
+
+
+def _online() -> bool:
+    import socket
+
+    try:
+        socket.create_connection(("1.1.1.1", 443), timeout=3).close()
+        return True
+    except OSError:
+        return False
+
+
 # --------------------------------------------------------------------------- #
 # Then: exit codes and stderr
 # --------------------------------------------------------------------------- #
@@ -184,6 +225,29 @@ def then_all_exist(ctx, group):
         assert _artifact(ctx, rel).exists(), f"missing artifact: {rel}"
 
 
+def _dialogue_texts(ctx, rel: str) -> list[str]:
+    """The Text field of every Dialogue event (everything after the 9 ASS
+    header fields)."""
+    texts = []
+    for ln in _artifact(ctx, rel).read_text().splitlines():
+        if ln.startswith("Dialogue:"):
+            texts.append(ln.split(",", 9)[-1])
+    return texts
+
+
+@step(r'no Dialogue line in "([^"]+)" ends with "," or "\."')
+def then_no_dialogue_ends_with_punct(ctx, rel):
+    bad = [t for t in _dialogue_texts(ctx, rel) if t.rstrip().endswith((",", "."))]
+    assert not bad, f"{len(bad)} lines end with ,/.  e.g. {bad[0]!r}"
+
+
+@step(r'every Dialogue line in "([^"]+)" starts with an uppercase letter or a digit')
+def then_dialogue_starts_uppercase(ctx, rel):
+    for t in _dialogue_texts(ctx, rel):
+        head = t.lstrip()[:1]
+        assert head and (head.isupper() or head.isdigit()), f"bad line start: {t!r}"
+
+
 @step(r'"([^"]+)" has non-empty (.+)')
 def then_manifest_nonempty_fields(ctx, rel, fields):
     manifest = _manifest(ctx, rel)
@@ -201,6 +265,13 @@ def then_manifest_field_equals(ctx, rel, field, expected):
 def then_manifest_field_lang_code(ctx, rel, field):
     value = _manifest(ctx, rel)[field]
     assert re.fullmatch(r"[a-zA-Z]{2,3}", value), f"not a language code: {value!r}"
+
+
+@step(r'"([^"]+)" field "source" names that provider, not "asr"')
+def then_source_names_provider(ctx, rel):
+    source = _manifest(ctx, rel)["source"]
+    assert source != "asr", "fell back to ASR; no secondary provider hit"
+    assert source, "empty source"
 
 
 @step(r'"([^"]+)" contains no artifacts')
