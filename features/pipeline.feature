@@ -1,6 +1,6 @@
-# mutation-stamp: sha256=c459e6f158e77b72764060b758305babefd12493cc6e4e45743695d56ea1af70
+# mutation-stamp: sha256=7c94c66c0221fd593a7263abb744fb729370555b4a77716f5da6cc55370fc759
 # acceptance-mutation-manifest-begin
-# {"version":1,"tested_at":"2026-07-02T17:41:32.417307Z","feature_name":"pipeline","feature_path":"features/pipeline.feature","background_hash":"7ac9635d031aee475146f0f701c79c32f2dc6287699f018677a2988e91146658","implementation_hash":"sha256:3580104b0a8c30c909f6e90396082333d22721d3bee1e618cfbe420bcb8c1cfe","scenarios":[{"index":2,"name":"pipeline-3 language hint is honored","scenario_hash":"9f86e56ef8fadb391360da57a5351100e0a8d34a315b5e73318f145fcd75e789","mutation_count":2,"result":{"Total":2,"Killed":2,"Survived":0,"Errors":0},"tested_at":"2026-07-02T17:41:32.417307Z"}]}
+# {"version":1,"tested_at":"2026-07-08T16:53:23.985383Z","feature_name":"pipeline","feature_path":"features/pipeline.feature","background_hash":"5496b98636c53329c7de86b8905d882968744576347cb21dd60dcb1a5947889a","implementation_hash":"sha256:cce31315caa7f1ab808594ca380aece92f60cf8af7fb08b549861fa0fefa70ff","scenarios":[{"index":2,"name":"pipeline-3 language hint is honored","scenario_hash":"9f86e56ef8fadb391360da57a5351100e0a8d34a315b5e73318f145fcd75e789","mutation_count":2,"result":{"Total":2,"Killed":2,"Survived":0,"Errors":0},"tested_at":"2026-07-08T16:53:23.985383Z"}]}
 # acceptance-mutation-manifest-end
 
 Feature: pipeline
