@@ -22,7 +22,7 @@ def fetch(
     title: str | None,
     artist: str | None,
     duration_s: float | None = None,
-    timeout: float = 15.0,  # cold LRCLIB + slow networks exceed 5 s on read
+    timeout: float = 30.0,  # pod-to-lrclib latency swings 7-17s; be generous
 ) -> list[dict] | None:
     """Synced lines for (artist, title), or None. Any failure -> None so
     the caller falls back to ASR."""
