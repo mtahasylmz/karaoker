@@ -71,7 +71,13 @@ def _tokens(command: str) -> list[str]:
     toks = shlex.split(command)
     assert toks and toks[0] == "annemusic", f"unexpected command: {command}"
     fx = fixture()
-    return [str(fx) if t == "$ANNEMUSIC_FIXTURE" and fx else t for t in toks[1:]]
+
+    def expand(t: str) -> str:
+        if t == "$ANNEMUSIC_FIXTURE" and fx:
+            return str(fx)
+        return os.path.expandvars(t)
+
+    return [expand(t) for t in toks[1:]]
 
 
 def _key(tokens: list[str], with_lyrics: bool) -> str:
