@@ -124,3 +124,28 @@ def test_provider_classes_empty_when_library_missing(monkeypatch):
     # Import failure degrades to an empty list (caller then falls back to ASR).
     monkeypatch.setitem(sys.modules, "syncedlyrics", None)  # import -> ImportError
     assert synced._provider_classes() == []
+
+
+# --------------------------------------------------------------------------- #
+# Hard wall-clock cap: a hung provider must degrade to None, never block the
+# pipeline (a timeout-less syncedlyrics request stalled a run for 1.5 days).
+# --------------------------------------------------------------------------- #
+
+
+def test_hung_provider_times_out_and_degrades(monkeypatch):
+    import time
+
+    def slow_get_lrc(self, search_term):
+        time.sleep(5)  # far past the sub-second budget below
+        return _Lyrics(_LRC)
+
+    hung = type("Musixmatch", (), {"get_lrc": slow_get_lrc})
+    _install(monkeypatch, [hung])
+    monkeypatch.setenv("SYNCED_TIMEOUT_S", "0.2")
+
+    started = time.monotonic()
+    result = synced.fetch("T", "A")
+    elapsed = time.monotonic() - started
+
+    assert result is None  # degraded to ASR instead of hanging
+    assert elapsed < 4  # returned on the budget, did not wait out the 5 s sleep
