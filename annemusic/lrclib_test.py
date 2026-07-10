@@ -185,3 +185,41 @@ def test_parse_lrc_handles_minutes_and_variable_centis():
 def test_parse_lrc_skips_blank_and_untimed_lines():
     lines = list(lrclib.parse_lrc("not a timestamp\n[00:01.00]\n[00:02.00]kept\n"))
     assert [ln["text"] for ln in lines] == ["kept"]  # empty-text line dropped
+
+
+# --------------------------------------------------------------------------- #
+# fetch clamps LRC lines to the video's audio duration: LRC timestamps come
+# from the song *recording*, which can run past the *video's* audio (the last
+# line's +3 s tail or a next-line gap overruns [0, duration]).
+# --------------------------------------------------------------------------- #
+
+
+def test_fetch_clamps_line_end_overrunning_duration(monkeypatch, tmp_path):
+    # Last line starts before duration but its +3 s tail runs past it: the end
+    # must be pulled back to duration_s so no word lands outside [0, duration].
+    fixture = _write_fixture(tmp_path, {"syncedLyrics": "[04:02.29]son\n"})
+    monkeypatch.setenv("ANNEMUSIC_LRC_FIXTURE", str(fixture))
+    lines = lrclib.fetch("T", "A", duration_s=242.95)
+    assert lines[-1]["start"] == 242.29
+    assert lines[-1]["end"] == 242.95  # clamped down from 242.29 + 3.0
+
+
+def test_fetch_drops_line_starting_at_or_past_duration(monkeypatch, tmp_path):
+    # A line whose start is already at/past the video audio has no room: drop
+    # it entirely rather than emit a zero/negative-width window.
+    fixture = _write_fixture(
+        tmp_path, {"syncedLyrics": "[00:01.00]inside\n[04:03.00]past\n"}
+    )
+    monkeypatch.setenv("ANNEMUSIC_LRC_FIXTURE", str(fixture))
+    lines = lrclib.fetch("T", "A", duration_s=242.95)
+    assert [ln["text"] for ln in lines] == ["inside"]
+    assert lines[0]["end"] == 242.95  # the survivor's tail is also clamped
+
+
+def test_fetch_without_duration_keeps_current_behavior(monkeypatch, tmp_path):
+    # duration_s not provided: no clamp/drop, last line keeps its +3 s tail.
+    fixture = _write_fixture(tmp_path, {"syncedLyrics": "[04:02.29]son\n"})
+    monkeypatch.setenv("ANNEMUSIC_LRC_FIXTURE", str(fixture))
+    lines = lrclib.fetch("T", "A")
+    assert lines[-1]["start"] == 242.29
+    assert lines[-1]["end"] == 245.29  # 242.29 + 3.0, unclamped

@@ -37,8 +37,23 @@ def fetch(
     synced = body.get("syncedLyrics")
     if not synced:
         return None
-    lines = list(parse_lrc(synced))
+    lines = _clamp_to_duration(parse_lrc(synced), duration_s)
     return lines or None
+
+
+def _clamp_to_duration(lines: Iterable[dict], duration_s: float | None) -> list[dict]:
+    """LRC timestamps come from the song *recording*, so lines can overrun the
+    *video's* audio (last-line +3 s tail or a next-line gap). Clamp each end to
+    ``duration_s`` and drop lines that start at/past it (no room left — a
+    zero/negative window). ``duration_s`` None (not provided): pass through."""
+    if duration_s is None:
+        return list(lines)
+    kept = []
+    for ln in lines:
+        if ln["start"] >= duration_s:
+            continue  # starts past the video audio: no room, drop
+        kept.append({**ln, "end": min(ln["end"], duration_s)})
+    return kept
 
 
 def _get(title: str, artist: str, duration_s: float | None, timeout: float) -> dict | None:
