@@ -111,7 +111,49 @@ def test_get_returns_none_on_network_error(monkeypatch):
 
     monkeypatch.delenv("ANNEMUSIC_LRC_FIXTURE", raising=False)
     monkeypatch.setattr(lrclib.urllib.request, "urlopen", boom)
+    monkeypatch.setattr(lrclib.time, "sleep", lambda _s: None)
     assert lrclib.fetch("S", "A") is None
+
+
+def test_get_retries_once_after_a_transient_failure(monkeypatch):
+    # LRCLIB flakes transiently: first GET dies, the retry lands. One retry
+    # must recover the synced lines instead of silently falling back to ASR.
+    calls = {"n": 0}
+
+    class _Resp:
+        def __enter__(self):
+            return io.BytesIO(json.dumps({"syncedLyrics": _LRC}).encode())
+
+        def __exit__(self, *a):
+            return False
+
+    def flaky(req, timeout):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("connection reset")
+        return _Resp()
+
+    monkeypatch.delenv("ANNEMUSIC_LRC_FIXTURE", raising=False)
+    monkeypatch.setattr(lrclib.urllib.request, "urlopen", flaky)
+    monkeypatch.setattr(lrclib.time, "sleep", lambda _s: None)  # keep tests fast
+    lines = lrclib.fetch("S", "A")
+    assert [ln["text"] for ln in lines] == ["hello", "world"]
+    assert calls["n"] == 2  # exactly one retry
+
+
+def test_get_gives_up_after_two_consecutive_failures(monkeypatch):
+    # Not an infinite retry loop: two failures in a row -> None (ASR fallback).
+    calls = {"n": 0}
+
+    def always_boom(req, timeout):
+        calls["n"] += 1
+        raise OSError("still down")
+
+    monkeypatch.delenv("ANNEMUSIC_LRC_FIXTURE", raising=False)
+    monkeypatch.setattr(lrclib.urllib.request, "urlopen", always_boom)
+    monkeypatch.setattr(lrclib.time, "sleep", lambda _s: None)
+    assert lrclib.fetch("S", "A") is None
+    assert calls["n"] == 2  # original attempt + one retry, then give up
 
 
 # --------------------------------------------------------------------------- #

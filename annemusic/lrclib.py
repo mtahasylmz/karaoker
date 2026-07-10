@@ -11,9 +11,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import urllib.parse
 import urllib.request
 from typing import Iterable
+
+RETRY_PAUSE_S = 2.0  # LRCLIB flakes transiently; one retry after a short pause
 
 API = os.environ.get("LRCLIB_URL", "https://lrclib.net/api/get")
 
@@ -51,11 +54,16 @@ def _get(title: str, artist: str, duration_s: float | None, timeout: float) -> d
         params["duration"] = str(int(round(duration_s)))
     url = f"{API}?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"User-Agent": "annemusic (github.com/annemusic)"})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.load(r)
-    except Exception:
-        return None
+    # LRCLIB flakes transiently: retry the GET once (a transient miss otherwise
+    # costs the whole human-timed lyrics path). Give up after that -> ASR.
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.load(r)
+        except Exception:
+            if attempt == 0:
+                time.sleep(RETRY_PAUSE_S)
+    return None
 
 
 _TS_RE = re.compile(r"^\[(\d+):(\d+)(?:\.(\d+))?\]\s*(.*)$")
